@@ -27,8 +27,7 @@ async function cloudDelete(id) {
 }
 
 const PSYCH_TAGS = ['وفق الخطة', 'طمع', 'انتقام', 'خوف', 'كسر الخطة', 'تسرع', 'ثقة زائدة', 'تردد'];
-const PAIRS = ['GBPUSD', 'EURUSD', 'AUDJPY', 'AUDCAD', 'AUDNZD', 'AUDCHF', 'EURJPY', 'USDJPY', 'GBPJPY', 'XAUUSD', 'أخرى'];
-
+const PAIRS = ['EURUSD','GBPUSD','USDJPY','USDCHF','USDCAD','AUDUSD','NZDUSD','EURGBP','EURJPY','EURCHF','EURCAD','EURAUD','EURNZD','GBPJPY','GBPCHF','GBPCAD','GBPAUD','GBPNZD','AUDJPY','AUDCAD','AUDNZD','AUDCHF','NZDJPY','NZDCAD','NZDCHF','CADJPY','CADCHF','CHFJPY','XAUUSD','XAGUSD','أخرى'];
 const emptyTrade = () => ({
   id: crypto.randomUUID(),
   date: new Date().toISOString().slice(0, 10),
