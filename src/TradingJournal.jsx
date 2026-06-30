@@ -111,6 +111,39 @@ function ResultBadge({result}) {
   const map={win:{label:'رابحة',cls:'badge-win'},loss:{label:'خاسرة',cls:'badge-loss'},breakeven:{label:'تعادل',cls:'badge-be'},open:{label:'مفتوحة',cls:'badge-open'}};
   const m=map[result];
   return <span className={`badge ${m.cls}`}>{m.label}</span>;
+function PairPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const filtered = PAIRS.filter((p) => p.toLowerCase().startsWith(query.toLowerCase()));
+
+  return (
+    <div className="pair-picker">
+      <input
+        type="text"
+        value={open ? query : value}
+        onFocus={() => { setOpen(true); setQuery(''); }}
+        onChange={(e) => setQuery(e.target.value)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="اكتب للبحث..."
+        className="pair-input"
+      />
+      {open && (
+        <div className="pair-dropdown">
+          {filtered.length === 0 && <div className="pair-empty">لا يوجد تطابق</div>}
+          {filtered.map((p) => (
+            <div
+              key={p}
+              className={`pair-option ${p === value ? 'pair-option-active' : ''}`}
+              onMouseDown={() => { onChange(p); setOpen(false); setQuery(''); }}
+            >
+              {p}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 }function TradeForm({onSave,onCancel}) {
   const [t,setT]=useState(emptyTrade());
   const set=(k,v)=>setT((p)=>({...p,[k]:v}));
