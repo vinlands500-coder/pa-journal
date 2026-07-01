@@ -52,6 +52,12 @@ const PAIRS = [
   'Other',
 ];
 
+const SETUPS = [
+  'Supply', 'Demand', 'CHoCH', 'BOS',
+  'Break & Retest', 'Liquidity Sweep', 'Fake Breakout',
+  'Trend Continuation', 'Range Reversal', 'EMA50 Bounce',
+];
+
 const emptyTrade = () => ({
   id: crypto.randomUUID(),
   date: new Date().toISOString().slice(0, 10),
@@ -63,6 +69,7 @@ const emptyTrade = () => ({
   reasonExit: '',
   plan: '',
   psychTags: [],
+  setups: [],
   chartImage: null,
   aiAnalysis: null,
   createdAt: Date.now(),
@@ -215,6 +222,34 @@ function useDisciplineScore(trades) {
     if (!closed.length) return null;
     const disciplined = closed.filter((t) => !t.psychTags.some((tag) => NEGATIVE_PSYCH_TAGS.includes(tag))).length;
     return Math.round((disciplined / closed.length) * 100);
+  }, [trades]);
+}
+
+// ---------- Setup stats: per-setup win rate, avg R, net R, count ----------
+function useSetupStats(trades) {
+  return useMemo(() => {
+    const closed = trades.filter((t) => t.result !== 'open');
+    const map = {};
+    closed.forEach((t) => {
+      const tags = t.setups && t.setups.length ? t.setups : [];
+      tags.forEach((s) => {
+        if (!map[s]) map[s] = { wins: 0, total: 0, totalR: 0 };
+        map[s].total++;
+        const r = computeRealizedR(t);
+        if (r !== null) map[s].totalR += r;
+        if (t.result === 'win') map[s].wins++;
+      });
+    });
+    return Object.entries(map)
+      .map(([name, v]) => ({
+        name,
+        total: v.total,
+        wins: v.wins,
+        winRate: Math.round((v.wins / v.total) * 100),
+        netR: +v.totalR.toFixed(2),
+        avgR: v.total ? +(v.totalR / v.total).toFixed(2) : 0,
+      }))
+      .sort((a, b) => b.netR - a.netR);
   }, [trades]);
 }
 
@@ -385,6 +420,49 @@ function EquityCurve({ data }) {
   );
 }
 
+function SetupStatsPanel({ stats }) {
+  if (!stats.length) return null;
+  const best = stats[0];
+  const worst = [...stats].sort((a, b) => a.netR - b.netR)[0];
+
+  return (
+    <section className="setup-stats-section">
+      <div className="setup-stats-header">
+        <BarChart3 size={15} />
+        <span>Setup Performance</span>
+      </div>
+
+      <div className="setup-highlights">
+        <div className="setup-highlight-card setup-hl-best">
+          <div className="setup-hl-label">Best Setup</div>
+          <div className="setup-hl-name">{best.name}</div>
+          <div className="setup-hl-r">+{best.netR}R · {best.winRate}% WR</div>
+        </div>
+        <div className="setup-highlight-card setup-hl-worst">
+          <div className="setup-hl-label">Worst Setup</div>
+          <div className="setup-hl-name">{worst.name}</div>
+          <div className="setup-hl-r">{worst.netR >= 0 ? '+' : ''}{worst.netR}R · {worst.winRate}% WR</div>
+        </div>
+      </div>
+
+      <div className="setup-table">
+        <div className="setup-table-head">
+          <span>Setup</span><span>Trades</span><span>Win%</span><span>Avg R</span><span>Net R</span>
+        </div>
+        {stats.map((s) => (
+          <div key={s.name} className="setup-table-row">
+            <span className="setup-name-cell">{s.name}</span>
+            <span>{s.total}</span>
+            <span className={s.winRate >= 50 ? 'clr-pos' : 'clr-neg'}>{s.winRate}%</span>
+            <span className={s.avgR >= 0 ? 'clr-pos' : 'clr-neg'}>{s.avgR >= 0 ? '+' : ''}{s.avgR}R</span>
+            <span className={s.netR >= 0 ? 'clr-pos' : 'clr-neg'}>{s.netR >= 0 ? '+' : ''}{s.netR}R</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Tag({ children, active, onClick }) {
   return (
     <button type="button" onClick={onClick} className={`tag-btn ${active ? 'tag-active' : ''}`}>
@@ -529,6 +607,17 @@ function TradeForm({ onSave, onCancel }) {
       </label>
 
       <label className="field">
+        <span>Setup type (select all that apply)</span>
+        <div className="tags-wrap">
+          {SETUPS.map((s) => (
+            <Tag key={s} active={t.setups.includes(s)} onClick={() => {
+              setT((p) => ({ ...p, setups: p.setups.includes(s) ? p.setups.filter((x) => x !== s) : [...p.setups, s] }));
+            }}>{s}</Tag>
+          ))}
+        </div>
+      </label>
+
+      <label className="field">
         <span>Psychological state during the trade (select all that honestly apply)</span>
         <div className="tags-wrap">
           {PSYCH_TAGS.map((tag) => (
@@ -598,6 +687,12 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
           {trade.psychTags.length > 0 && (
             <div className="tags-wrap">{trade.psychTags.map((t) => <span key={t} className="tag-readonly">{t}</span>)}</div>
           )}
+          {trade.setups && trade.setups.length > 0 && (
+            <div className="setups-display">
+              <span className="meta-label">Setups</span>
+              <div className="tags-wrap">{trade.setups.map((s) => <span key={s} className="tag-readonly tag-setup">{s}</span>)}</div>
+            </div>
+          )}
           {trade.chartImage && <img src={trade.chartImage} alt="chart" className="chart-thumb-lg" />}
 
           <div className="ai-section">
@@ -643,6 +738,16 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
             <textarea rows={2} value={draft.reasonExit} onChange={(e) => setD('reasonExit', e.target.value)} placeholder="Hit target / closed manually after EMA50 break / hit SL" />
           </label>
           <label className="field">
+            <span>Setup type</span>
+            <div className="tags-wrap">
+              {SETUPS.map((s) => (
+                <Tag key={s} active={(draft.setups || []).includes(s)} onClick={() => {
+                  setDraft((p) => ({ ...p, setups: (p.setups || []).includes(s) ? (p.setups || []).filter((x) => x !== s) : [...(p.setups || []), s] }));
+                }}>{s}</Tag>
+              ))}
+            </div>
+          </label>
+          <label className="field">
             <span>Psychological state at close</span>
             <div className="tags-wrap">
               {PSYCH_TAGS.map((tag) => (
@@ -667,6 +772,7 @@ export default function TradingJournal() {
   const stats = useStats(trades);
   const equityData = useEquityCurve(trades);
   const disciplineScore = useDisciplineScore(trades);
+  const setupStats = useSetupStats(trades);
   const [showForm, setShowForm] = useState(false);
   const [analyzingId, setAnalyzingId] = useState(null);
   const [filterResult, setFilterResult] = useState('all');
@@ -776,6 +882,8 @@ export default function TradingJournal() {
       )}
 
       <EquityCurve data={equityData} />
+
+      <SetupStatsPanel stats={setupStats} />
 
       {showForm && <TradeForm onSave={handleSave} onCancel={() => setShowForm(false)} />}
 
@@ -931,6 +1039,24 @@ const css = `
 .error-banner { background: var(--rose-dim); border: 1px solid #5a2e38; color: var(--rose); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 0 16px 14px; }
 
 .equity-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px 14px 4px; margin: 0 16px 14px; }
+
+.setup-stats-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px; margin: 0 16px 14px; }
+.setup-stats-header { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text-mid); margin-bottom: 12px; }
+.setup-highlights { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.setup-highlight-card { border-radius: 10px; padding: 10px 12px; }
+.setup-hl-best { background: rgba(66,116,220,0.12); border: 1px solid rgba(66,116,220,0.25); }
+.setup-hl-worst { background: rgba(226,59,59,0.08); border: 1px solid rgba(226,59,59,0.18); }
+.setup-hl-label { font-size: 10px; color: var(--text-dim); margin-bottom: 3px; }
+.setup-hl-name { font-size: 12.5px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.setup-hl-r { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-mid); }
+.setup-table { border-radius: 8px; overflow: hidden; }
+.setup-table-head { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; padding: 6px 8px; background: rgba(255,255,255,0.03); font-size: 10px; color: var(--text-dim); font-weight: 600; }
+.setup-table-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; padding: 8px; border-top: 1px solid var(--line-soft); font-size: 11.5px; font-family: 'JetBrains Mono', monospace; align-items: center; }
+.setup-name-cell { font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600; color: var(--text); }
+.clr-pos { color: #5b8def; }
+.clr-neg { color: #e23b3b; }
+.tag-setup { background: rgba(66,116,220,0.15); color: #7aa3f0; border: 1px solid rgba(66,116,220,0.3); }
+.setups-display { margin-top: 6px; }
 .equity-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .equity-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text-mid); }
 .equity-total { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; }
