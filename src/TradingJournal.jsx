@@ -31,7 +31,7 @@ async function cloudDelete(id) {
 }
 
 // ---------- Constants ----------
-const PSYCH_TAGS = ['Followed Plan', 'Greed', 'Revenge', 'Fear', 'Broke Plan', 'Rushed Entry', 'Overconfidence', 'Hesitation'];
+const PSYCH_TAGS = ['وفق الخطة', 'طمع', 'انتقام', 'خوف', 'كسر الخطة', 'تسرع', 'ثقة زائدة', 'تردد'];
 // Legacy Arabic tag values from trades logged before the English UI update — kept only
 // so old trades still count correctly in stats (see NEGATIVE_PSYCH_TAGS below).
 const LEGACY_PSYCH_TAGS_AR = ['وفق الخطة', 'طمع', 'انتقام', 'خوف', 'كسر الخطة', 'تسرع', 'ثقة زائدة', 'تردد'];
@@ -49,7 +49,7 @@ const PAIRS = [
   'CHFJPY',
   // Metals
   'XAUUSD','XAGUSD',
-  'Other',
+  'أخرى',
 ];
 
 const SETUPS = [
@@ -159,7 +159,7 @@ function useStats(trades) {
 
     const byDay = {};
     closed.forEach((t) => {
-      const day = new Date(t.date).toLocaleDateString('en-US', { weekday: 'long' });
+      const day = new Date(t.date).toLocaleDateString('ar-EG', { weekday: 'long' });
       byDay[day] = byDay[day] || { r: 0, count: 0 };
       const r = computeRealizedR(t) || 0;
       byDay[day].r += r;
@@ -255,7 +255,7 @@ function useSetupStats(trades) {
 
 function getGreeting() {
   const h = new Date().getHours();
-  return h < 12 ? 'Good morning' : 'Good evening';
+  return h < 12 ? 'صباح الخير' : 'مساء الخير';
 }
 
 // ---------- Claude API call (built-in, no key needed per platform) ----------
@@ -333,7 +333,7 @@ function DisciplineGauge({ score }) {
   const pct = Math.max(0, Math.min(100, score));
   const offset = circumference - (pct / 100) * circumference;
   const color = pct >= 70 ? '#5b8def' : pct >= 40 ? '#e5cd52' : '#e0607a';
-  const label = pct >= 70 ? 'Good' : pct >= 40 ? 'Fair' : 'Poor';
+  const label = pct >= 70 ? 'جيد' : pct >= 40 ? 'متوسط' : 'ضعيف';
 
   return (
     <div className="discipline-card">
@@ -349,8 +349,8 @@ function DisciplineGauge({ score }) {
         <text x="44" y="55" textAnchor="middle" fontSize="9" fill="#707b8f" fontFamily="JetBrains Mono, monospace">/100</text>
       </svg>
       <div className="discipline-info">
-        <div className="discipline-title"><Star size={14} /> Discipline Score</div>
-        <div className="discipline-desc">Measures how well you stuck to your plan, regardless of the trade's outcome</div>
+        <div className="discipline-title"><Star size={14} /> مؤشر الانضباط</div>
+        <div className="discipline-desc">يقيس التزامك بخطتك بغض النظر عن نتيجة الصفقة</div>
         <div className="discipline-badge" style={{ color }}>{label}</div>
       </div>
     </div>
@@ -365,10 +365,10 @@ function EquityTooltip({ active, payload }) {
     <div className="equity-tooltip">
       <div className="equity-tooltip-pair">{p.pair} · {p.label}</div>
       <div className="equity-tooltip-r">
-        This trade: <strong className={p.r >= 0 ? 'eq-pos' : 'eq-neg'}>{p.r >= 0 ? '+' : ''}{p.r}R</strong>
+        هذه الصفقة: <strong className={p.r >= 0 ? 'eq-pos' : 'eq-neg'}>{p.r >= 0 ? '+' : ''}{p.r}R</strong>
       </div>
       <div className="equity-tooltip-cum">
-        Cumulative: <strong className={p.cum >= 0 ? 'eq-pos' : 'eq-neg'}>{p.cum >= 0 ? '+' : ''}{p.cum}R</strong>
+        التراكمي: <strong className={p.cum >= 0 ? 'eq-pos' : 'eq-neg'}>{p.cum >= 0 ? '+' : ''}{p.cum}R</strong>
       </div>
     </div>
   );
@@ -381,7 +381,7 @@ function EquityCurve({ data }) {
   return (
     <section className="equity-section">
       <div className="equity-header">
-        <div className="equity-title"><LineChartIcon size={15} /> Equity Curve</div>
+        <div className="equity-title"><LineChartIcon size={15} /> منحنى الأداء</div>
         <div className={`equity-total ${last >= 0 ? 'eq-pos' : 'eq-neg'}`}>{last >= 0 ? '+' : ''}{last}R</div>
       </div>
       <div className="equity-chart-wrap">
@@ -429,7 +429,7 @@ function SetupStatsPanel({ stats }) {
     <section className="setup-stats-section">
       <div className="setup-stats-header">
         <BarChart3 size={15} />
-        <span>Setup Performance</span>
+        <span>أداء الإعدادات</span>
       </div>
 
       <div className="setup-highlights">
@@ -447,7 +447,7 @@ function SetupStatsPanel({ stats }) {
 
       <div className="setup-table">
         <div className="setup-table-head">
-          <span>Setup</span><span>Trades</span><span>Win%</span><span>Avg R</span><span>Net R</span>
+          <span>الإعداد</span><span>صفقات</span><span>فوز%</span><span>متوسط R</span><span>صافي R</span>
         </div>
         {stats.map((s) => (
           <div key={s.name} className="setup-table-row">
@@ -473,10 +473,10 @@ function Tag({ children, active, onClick }) {
 
 function ResultBadge({ result }) {
   const map = {
-    win: { label: 'Win', cls: 'badge-win' },
-    loss: { label: 'Loss', cls: 'badge-loss' },
-    breakeven: { label: 'Breakeven', cls: 'badge-be' },
-    open: { label: 'Open', cls: 'badge-open' },
+    win: { label: 'رابحة', cls: 'badge-win' },
+    loss: { label: 'خاسرة', cls: 'badge-loss' },
+    breakeven: { label: 'تعادل', cls: 'badge-be' },
+    open: { label: 'مفتوحة', cls: 'badge-open' },
   };
   const m = map[result];
   return <span className={`badge ${m.cls}`}>{m.label}</span>;
@@ -495,12 +495,12 @@ function PairPicker({ value, onChange }) {
         onFocus={() => { setOpen(true); setQuery(''); }}
         onChange={(e) => setQuery(e.target.value)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Type to search..."
+        placeholder="اكتب للبحث..."
         className="pair-input"
       />
       {open && (
         <div className="pair-dropdown">
-          {filtered.length === 0 && <div className="pair-empty">No match found</div>}
+          {filtered.length === 0 && <div className="pair-empty">لا يوجد تطابق</div>}
           {filtered.map((p) => (
             <div
               key={p}
@@ -534,21 +534,21 @@ function TradeForm({ onSave, onCancel }) {
     <div className="form-card">
       <div className="form-grid">
         <label className="field">
-          <span>Date</span>
+          <span>التاريخ</span>
           <input type="date" value={t.date} onChange={(e) => set('date', e.target.value)} />
         </label>
         <label className="field">
-          <span>Pair</span>
+          <span>الزوج</span>
           <PairPicker value={t.pair} onChange={(v) => set('pair', v)} />
         </label>
         <label className="field">
-          <span>Direction</span>
+          <span>الاتجاه</span>
           <div className="dir-toggle">
             <button type="button" className={t.direction === 'buy' ? 'dir-active dir-buy' : 'dir-buy'} onClick={() => set('direction', 'buy')}>
-              <TrendingUp size={14} /> Buy
+              <TrendingUp size={14} /> شراء
             </button>
             <button type="button" className={t.direction === 'sell' ? 'dir-active dir-sell' : 'dir-sell'} onClick={() => set('direction', 'sell')}>
-              <TrendingDown size={14} /> Sell
+              <TrendingDown size={14} /> بيع
             </button>
           </div>
         </label>
@@ -556,58 +556,58 @@ function TradeForm({ onSave, onCancel }) {
 
       <div className="form-grid form-grid-4">
         <label className="field">
-          <span>Entry</span>
+          <span>الدخول</span>
           <input type="number" step="any" value={t.entry} onChange={(e) => set('entry', e.target.value)} placeholder="1.2750" />
         </label>
         <label className="field">
-          <span>Stop Loss</span>
+          <span>إيقاف الخسارة</span>
           <input type="number" step="any" value={t.sl} onChange={(e) => set('sl', e.target.value)} placeholder="1.2700" />
         </label>
         <label className="field">
-          <span>Target</span>
+          <span>الهدف</span>
           <input type="number" step="any" value={t.tp} onChange={(e) => set('tp', e.target.value)} placeholder="1.2850" />
         </label>
         <label className="field">
-          <span>Actual Exit</span>
-          <input type="number" step="any" value={t.exit} onChange={(e) => set('exit', e.target.value)} placeholder="optional" />
+          <span>الخروج الفعلي</span>
+          <input type="number" step="any" value={t.exit} onChange={(e) => set('exit', e.target.value)} placeholder="اختياري" />
         </label>
       </div>
 
       {rr && (
-        <div className="rr-preview">Planned Risk:Reward: <strong>1:{rr}</strong></div>
+        <div className="rr-preview">نسبة المخاطرة/العائد المخططة: <strong>1:{rr}</strong></div>
       )}
 
       <label className="field">
-        <span>Result</span>
+        <span>النتيجة</span>
         <div className="result-toggle">
           {['win', 'loss', 'breakeven', 'open'].map((r) => (
             <button key={r} type="button" className={t.result === r ? `res-active res-${r}` : `res-${r}`} onClick={() => set('result', r)}>
-              {{ win: 'Win', loss: 'Loss', breakeven: 'Breakeven', open: 'Open' }[r]}
+              {{ win: 'رابحة', loss: 'خاسرة', breakeven: 'تعادل', open: 'مفتوحة' }[r]}
             </button>
           ))}
         </div>
       </label>
 
       <label className="field">
-        <span>Entry reason (be specific and measurable: what exactly did you see?)</span>
+        <span>سبب الدخول (اكتب بصيغة محددة وقابلة للقياس: ما الذي رأيته بالضبط؟)</span>
         <textarea rows={3} value={t.reasonEntry} onChange={(e) => set('reasonEntry', e.target.value)}
-          placeholder="e.g. CHoCH on 1H with a full candle close + retest of EMA50 + entry from an untouched supply zone" />
+          placeholder="مثال: CHoCH على 1H بإغلاق شمعة كامل + ريتست لـ EMA50 + دخول من Supply zone لم تُلمس من قبل" />
       </label>
 
       <label className="field">
-        <span>Exit reason</span>
+        <span>سبب الخروج</span>
         <textarea rows={2} value={t.reasonExit} onChange={(e) => set('reasonExit', e.target.value)}
-          placeholder="e.g. Hit target / closed manually after EMA50 break / hit SL" />
+          placeholder="مثال: ضرب الهدف / أغلقت يدوياً بعد كسر EMA50 / ضرب SL" />
       </label>
 
       <label className="field">
-        <span>Original plan before entry</span>
+        <span>الخطة الأصلية قبل الدخول</span>
         <textarea rows={2} value={t.plan} onChange={(e) => set('plan', e.target.value)}
-          placeholder="What was your plan before you entered? Did you stick to it?" />
+          placeholder="ما كانت خطتك قبل أن تدخل؟ هل التزمت بها؟" />
       </label>
 
       <label className="field">
-        <span>Setup type (select all that apply)</span>
+        <span>نوع الإعداد (اختر كل ما ينطبق)</span>
         <div className="tags-wrap">
           {SETUPS.map((s) => (
             <Tag key={s} active={t.setups.includes(s)} onClick={() => {
@@ -618,7 +618,7 @@ function TradeForm({ onSave, onCancel }) {
       </label>
 
       <label className="field">
-        <span>Psychological state during the trade (select all that honestly apply)</span>
+        <span>الحالة النفسية وقت الصفقة (اختر كل ما ينطبق بصدق)</span>
         <div className="tags-wrap">
           {PSYCH_TAGS.map((tag) => (
             <Tag key={tag} active={t.psychTags.includes(tag)} onClick={() => {
@@ -629,14 +629,14 @@ function TradeForm({ onSave, onCancel }) {
       </label>
 
       <label className="field">
-        <span>Chart image (optional)</span>
+        <span>صورة الشارت (اختياري)</span>
         <input type="file" accept="image/*" onChange={handleImage} className="file-input" />
         {t.chartImage && <img src={t.chartImage} alt="chart" className="chart-thumb" />}
       </label>
 
       <div className="form-actions">
-        <button className="btn-secondary" onClick={onCancel}>Cancel</button>
-        <button className="btn-primary" onClick={() => onSave(t)}>Save Trade</button>
+        <button className="btn-secondary" onClick={onCancel}>إلغاء</button>
+        <button className="btn-primary" onClick={() => onSave(t)}>حفظ الصفقة</button>
       </div>
     </div>
   );
@@ -674,22 +674,22 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
       {open && !editing && (
         <div className="trade-body">
           <div className="trade-meta-grid">
-            <div><span className="meta-label">Entry</span>{trade.entry || '—'}</div>
+            <div><span className="meta-label">دخول</span>{trade.entry || '—'}</div>
             <div><span className="meta-label">SL</span>{trade.sl || '—'}</div>
             <div><span className="meta-label">TP</span>{trade.tp || '—'}</div>
-            <div><span className="meta-label">Exit</span>{trade.exit || '—'}</div>
-            <div><span className="meta-label">Planned R:R</span>{rr ? `1:${rr}` : '—'}</div>
+            <div><span className="meta-label">خروج</span>{trade.exit || '—'}</div>
+            <div><span className="meta-label">R:R مخطط</span>{rr ? `1:${rr}` : '—'}</div>
           </div>
 
-          {trade.reasonEntry && <div className="trade-text"><span className="meta-label">Entry Reason</span><p>{trade.reasonEntry}</p></div>}
-          {trade.reasonExit && <div className="trade-text"><span className="meta-label">Exit Reason</span><p>{trade.reasonExit}</p></div>}
-          {trade.plan && <div className="trade-text"><span className="meta-label">Plan</span><p>{trade.plan}</p></div>}
+          {trade.reasonEntry && <div className="trade-text"><span className="meta-label">سبب الدخول</span><p>{trade.reasonEntry}</p></div>}
+          {trade.reasonExit && <div className="trade-text"><span className="meta-label">سبب الخروج</span><p>{trade.reasonExit}</p></div>}
+          {trade.plan && <div className="trade-text"><span className="meta-label">الخطة</span><p>{trade.plan}</p></div>}
           {trade.psychTags.length > 0 && (
             <div className="tags-wrap">{trade.psychTags.map((t) => <span key={t} className="tag-readonly">{t}</span>)}</div>
           )}
           {trade.setups && trade.setups.length > 0 && (
             <div className="setups-display">
-              <span className="meta-label">Setups</span>
+              <span className="meta-label">الإعدادات</span>
               <div className="tags-wrap">{trade.setups.map((s) => <span key={s} className="tag-readonly tag-setup">{s}</span>)}</div>
             </div>
           )}
@@ -698,23 +698,23 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
           <div className="ai-section">
             {!trade.aiAnalysis && (
               <button className="btn-ai btn-ai-disabled" onClick={() => {}} disabled title="This feature is temporarily paused after deploying outside Claude — coming in a future update">
-                <Brain size={16} /> AI Analysis (Coming Soon)
+                <Brain size={16} /> التحليل بالذكاء الاصطناعي (قادم قريباً)
               </button>
             )}
             {trade.aiAnalysis && (
               <div className="ai-result">
                 <div className="ai-row"><Sparkles size={14} /><strong>{trade.aiAnalysis.verdict}</strong></div>
-                <div className="ai-row-detail"><span className="meta-label">Why This Result</span><p>{trade.aiAnalysis.why_result}</p></div>
-                {trade.aiAnalysis.psych_read && <div className="ai-row-detail"><span className="meta-label">Psychological Read</span><p>{trade.aiAnalysis.psych_read}</p></div>}
-                <div className="ai-row-detail"><span className="meta-label">Rule Check</span><p>{trade.aiAnalysis.rule_check}</p></div>
-                <div className="ai-row-detail fix"><span className="meta-label">One Fix for Next Time</span><p>{trade.aiAnalysis.one_fix}</p></div>
+                <div className="ai-row-detail"><span className="meta-label">لماذا هذه النتيجة</span><p>{trade.aiAnalysis.why_result}</p></div>
+                {trade.aiAnalysis.psych_read && <div className="ai-row-detail"><span className="meta-label">القراءة النفسية</span><p>{trade.aiAnalysis.psych_read}</p></div>}
+                <div className="ai-row-detail"><span className="meta-label">فحص القواعد</span><p>{trade.aiAnalysis.rule_check}</p></div>
+                <div className="ai-row-detail fix"><span className="meta-label">تحسين واحد لمرة قادمة</span><p>{trade.aiAnalysis.one_fix}</p></div>
               </div>
             )}
           </div>
 
           <div className="card-actions">
-            <button className="btn-edit" onClick={startEdit}><Pencil size={14} /> Edit / Close</button>
-            <button className="btn-delete" onClick={() => onDelete(trade.id)}><Trash2 size={14} /> Delete</button>
+            <button className="btn-edit" onClick={startEdit}><Pencil size={14} /> تعديل / إغلاق</button>
+            <button className="btn-delete" onClick={() => onDelete(trade.id)}><Trash2 size={14} /> حذف</button>
           </div>
         </div>
       )}
@@ -722,8 +722,8 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
       {open && editing && (
         <div className="trade-body edit-body">
           <div className="form-grid form-grid-4">
-            <label className="field"><span>Actual Exit</span><input type="number" step="any" value={draft.exit} onChange={(e) => setD('exit', e.target.value)} placeholder="optional" /></label>
-            <label className="field"><span>Result</span>
+            <label className="field"><span>الخروج الفعلي</span><input type="number" step="any" value={draft.exit} onChange={(e) => setD('exit', e.target.value)} placeholder="optional" /></label>
+            <label className="field"><span>النتيجة</span>
               <div className="result-toggle">
                 {['win', 'loss', 'breakeven', 'open'].map((r) => (
                   <button key={r} type="button" className={draft.result === r ? `res-active res-${r}` : `res-${r}`} onClick={() => setD('result', r)}>
@@ -735,10 +735,10 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
           </div>
           <label className="field">
             <span>Exit Reason</span>
-            <textarea rows={2} value={draft.reasonExit} onChange={(e) => setD('reasonExit', e.target.value)} placeholder="Hit target / closed manually after EMA50 break / hit SL" />
+            <textarea rows={2} value={draft.reasonExit} onChange={(e) => setD('reasonExit', e.target.value)} placeholder="ضرب الهدف / أغلقت يدوياً بعد كسر EMA50 / ضرب SL" />
           </label>
           <label className="field">
-            <span>Setup type</span>
+            <span>نوع الإعداد</span>
             <div className="tags-wrap">
               {SETUPS.map((s) => (
                 <Tag key={s} active={(draft.setups || []).includes(s)} onClick={() => {
@@ -748,7 +748,7 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
             </div>
           </label>
           <label className="field">
-            <span>Psychological state at close</span>
+            <span>الحالة النفسية وقت الإغلاق</span>
             <div className="tags-wrap">
               {PSYCH_TAGS.map((tag) => (
                 <Tag key={tag} active={draft.psychTags.includes(tag)} onClick={() => {
@@ -759,7 +759,7 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
           </label>
           <div className="form-actions">
             <button className="btn-secondary" onClick={cancelEdit}>Cancel</button>
-            <button className="btn-primary" onClick={saveEdit}>Save Changes</button>
+            <button className="btn-primary" onClick={saveEdit}>حفظ التعديل</button>
           </div>
         </div>
       )}
@@ -790,31 +790,31 @@ export default function TradingJournal() {
       const result = await analyzeTradeWithAI(trade);
       update(id, { aiAnalysis: result });
     } catch (e) {
-      setError('Analysis failed, please try again');
+      setError('فشل التحليل، حاول مرة أخرى');
     } finally {
       setAnalyzingId(null);
     }
   };
 
   return (
-    <div className="app" dir="ltr">
+    <div className="app" dir="rtl">
       <style>{css}</style>
 
       <div className="ticker-strip">
         <span className="ticker-dot" />
         <span className="ticker-label">SESSION</span>
-        <span className="ticker-val">{new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'short' })}</span>
+        <span className="ticker-val">{new Date().toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'short' })}</span>
         <span className="ticker-sep" />
-        <span className="ticker-label">NET R</span>
+        <span className="ticker-label">صافي R</span>
         <span className={`ticker-val ${stats.totalR >= 0 ? 'tv-up' : 'tv-down'}`}>{stats.totalR >= 0 ? '+' : ''}{stats.totalR}R</span>
         <span className="ticker-sep" />
         <span className="ticker-label">WIN%</span>
         <span className="ticker-val">{stats.winRate}%</span>
         <span className="ticker-sep" />
         <span className={`sync-pill ${syncStatus}`}>
-          {syncStatus === 'synced' && <><Cloud size={11} /> Synced</>}
-          {syncStatus === 'loading' && <>Loading...</>}
-          {syncStatus === 'error' && <><CloudOff size={11} /> Sync failed</>}
+          {syncStatus === 'synced' && <><Cloud size={11} /> محفوظ</>}
+          {syncStatus === 'loading' && <>...جاري التحميل</>}
+          {syncStatus === 'error' && <><CloudOff size={11} /> فشل الحفظ</>}
         </span>
       </div>
 
@@ -822,53 +822,53 @@ export default function TradingJournal() {
         <div className="brand-block">
           <div className="brand-mark">PA</div>
           <div>
-            <h1>PA Journal</h1>
-            <p className="subtitle">Log your decision, not anyone's advice</p>
+            <h1>دفتر التنفيذ</h1>
+            <p className="subtitle">سجّل قرارك، لا توصية أحد</p>
           </div>
         </div>
         <button className="btn-primary btn-new" onClick={() => setShowForm((s) => !s)}>
-          {showForm ? <X size={18} /> : <Plus size={18} />} {showForm ? 'Close' : 'New Trade'}
+          {showForm ? <X size={18} /> : <Plus size={18} />} {showForm ? 'إغلاق' : 'صفقة جديدة'}
         </button>
       </header>
 
       <section className="dash-hero">
         <div className="dash-greeting">
-          <div className="dash-greeting-title">{getGreeting()}, Trader 👋</div>
-          <div className="dash-greeting-sub">Here's an overview of your performance</div>
+          <div className="dash-greeting-title">{getGreeting()}، متداول 👋</div>
+          <div className="dash-greeting-sub">هذه نظرة عامة على أدائك</div>
         </div>
 
         <div className="dash-stats-grid">
           <DashStat
             icon={<Target size={16} color="#c4aee8" />}
             iconBg="rgba(155,127,196,0.18)"
-            label="Win Rate"
+            label="نسبة الفوز"
             value={`${stats.winRate}%`}
             accent={stats.winRate >= 50 ? '#5b8def' : '#e23b3b'}
           />
           <DashStat
             icon={<BarChart3 size={16} color="#6390e7" />}
             iconBg="rgba(99,144,231,0.15)"
-            label="Avg Planned R:R"
+            label="متوسط R:R المخطط"
             value={stats.avgRR === '—' ? '—' : `1:${stats.avgRR}`}
           />
           <DashStat
             icon={<TrendingUp size={16} color="#5be0a0" />}
             iconBg="rgba(91,224,160,0.15)"
-            label="Net R"
+            label="صافي R"
             value={`${stats.totalR >= 0 ? '+' : ''}${stats.totalR}R`}
             accent={stats.totalR >= 0 ? '#5b8def' : '#e23b3b'}
           />
           <DashStat
             icon={<Layers size={16} color="#e5cd52" />}
             iconBg="rgba(229,205,82,0.15)"
-            label="Total Trades"
+            label="إجمالي الصفقات"
             value={stats.totalTrades}
           />
         </div>
 
         <div className="dash-secondary-row">
-          <span>Best Pair: <strong>{stats.bestPair || '—'}</strong></span>
-          <span>Best Day: <strong>{stats.bestDay || '—'}</strong></span>
+          <span>أفضل زوج: <strong>{stats.bestPair || '—'}</strong></span>
+          <span>أفضل يوم: <strong>{stats.bestDay || '—'}</strong></span>
         </div>
 
         <DisciplineGauge score={disciplineScore} />
@@ -877,7 +877,7 @@ export default function TradingJournal() {
       {stats.topMistakeTag && (
         <div className="insight-banner">
           <AlertCircle size={16} />
-          Recurring mistake in your losses: <strong>{stats.topMistakeTag}</strong> ({stats.tagCounts[stats.topMistakeTag]}x)
+          الخطأ المتكرر في خسائرك: <strong>{stats.topMistakeTag}</strong> ({stats.tagCounts[stats.topMistakeTag]} مرة)
         </div>
       )}
 
@@ -893,7 +893,7 @@ export default function TradingJournal() {
         <Filter size={14} />
         {['all', 'win', 'loss', 'open'].map((f) => (
           <button key={f} className={`filter-btn ${filterResult === f ? 'filter-active' : ''}`} onClick={() => setFilterResult(f)}>
-            {{ all: 'All', win: 'Win', loss: 'Loss', open: 'Open' }[f]}
+            {{ all: 'الكل', win: 'رابحة', loss: 'خاسرة', open: 'مفتوحة' }[f]}
           </button>
         ))}
       </div>
@@ -902,7 +902,7 @@ export default function TradingJournal() {
         {filtered.length === 0 && (
           <div className="empty-state">
             <BarChart3 size={32} />
-            <p>No trades yet. Start by logging your first trade.</p>
+            <p>لا توجد صفقات بعد. ابدأ بتسجيل أول صفقة لك.</p>
           </div>
         )}
         {filtered.map((t) => (
@@ -914,7 +914,7 @@ export default function TradingJournal() {
 }
 
 const css = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
   --bg: #090c11;
@@ -941,7 +941,7 @@ const css = `
 * { box-sizing: border-box; }
 
 .app {
-  font-family: 'Inter', sans-serif;
+  font-family: 'IBM Plex Sans Arabic', sans-serif;
   background:
     radial-gradient(900px 600px at 85% 0%, rgba(66,116,220,0.16), transparent 60%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg) 45%, var(--bg-grad) 130%);
@@ -970,7 +970,7 @@ const css = `
 .ticker-val.tv-up { color: var(--blue-bright); }
 .ticker-val.tv-down { color: var(--rose); }
 .ticker-sep { width: 1px; height: 12px; background: var(--line); flex-shrink: 0; }
-.sync-pill { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--text-dim); margin-left: auto; }
+.sync-pill { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--text-dim); margin-right: auto; }
 .sync-pill.synced { color: var(--blue-bright); }
 .sync-pill.error { color: var(--red-strong); }
 
@@ -1052,7 +1052,7 @@ const css = `
 .setup-table { border-radius: 8px; overflow: hidden; }
 .setup-table-head { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; padding: 6px 8px; background: rgba(255,255,255,0.03); font-size: 10px; color: var(--text-dim); font-weight: 600; }
 .setup-table-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; padding: 8px; border-top: 1px solid var(--line-soft); font-size: 11.5px; font-family: 'JetBrains Mono', monospace; align-items: center; }
-.setup-name-cell { font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600; color: var(--text); }
+.setup-name-cell { font-family: 'IBM Plex Sans Arabic', sans-serif; font-size: 11px; font-weight: 600; color: var(--text); }
 .clr-pos { color: #5b8def; }
 .clr-neg { color: #e23b3b; }
 .tag-setup { background: rgba(66,116,220,0.15); color: #7aa3f0; border: 1px solid rgba(66,116,220,0.3); }
@@ -1153,7 +1153,7 @@ const css = `
 
 .trade-body { padding: 0 14px 14px; border-top: 1px solid var(--line-soft); }
 .trade-meta-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 12px 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.meta-label { display: block; font-size: 10px; color: var(--text-dim); font-family: 'Inter', sans-serif; margin-bottom: 2px; }
+.meta-label { display: block; font-size: 10px; color: var(--text-dim); font-family: 'IBM Plex Sans Arabic', sans-serif; margin-bottom: 2px; }
 .trade-text { margin-bottom: 10px; }
 .trade-text p { margin: 0; font-size: 13px; color: var(--text-mid); line-height: 1.6; }
 
