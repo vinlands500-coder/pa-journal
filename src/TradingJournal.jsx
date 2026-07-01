@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, X, TrendingUp, TrendingDown, Image as ImageIcon, Brain, BarChart3, ChevronDown, ChevronUp, Trash2, Filter, Sparkles, AlertCircle, Cloud, CloudOff, Pencil } from 'lucide-react';
+import { Plus, X, TrendingUp, TrendingDown, Image as ImageIcon, Brain, BarChart3, ChevronDown, ChevronUp, Trash2, Filter, Sparkles, AlertCircle, Cloud, CloudOff, Pencil, LineChart as LineChartIcon, Target, Layers, Star } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts';
 
 // ---------- Cloud sync (Google Apps Script Web App) ----------
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzj936UBtjCoJNNg5xtELgpTA6nLYtL7x4hAJWoE2lL5NXvsz3cJJz1wofWjiO4__ti2w/exec';
@@ -30,7 +31,10 @@ async function cloudDelete(id) {
 }
 
 // ---------- Constants ----------
-const PSYCH_TAGS = ['وفق الخطة', 'طمع', 'انتقام', 'خوف', 'كسر الخطة', 'تسرع', 'ثقة زائدة', 'تردد'];
+const PSYCH_TAGS = ['Followed Plan', 'Greed', 'Revenge', 'Fear', 'Broke Plan', 'Rushed Entry', 'Overconfidence', 'Hesitation'];
+// Legacy Arabic tag values from trades logged before the English UI update — kept only
+// so old trades still count correctly in stats (see NEGATIVE_PSYCH_TAGS below).
+const LEGACY_PSYCH_TAGS_AR = ['وفق الخطة', 'طمع', 'انتقام', 'خوف', 'كسر الخطة', 'تسرع', 'ثقة زائدة', 'تردد'];
 const PAIRS = [
   // Majors
   'EURUSD','GBPUSD','USDJPY','USDCHF','USDCAD','AUDUSD','NZDUSD',
@@ -45,7 +49,7 @@ const PAIRS = [
   'CHFJPY',
   // Metals
   'XAUUSD','XAGUSD',
-  'أخرى',
+  'Other',
 ];
 
 const emptyTrade = () => ({
@@ -148,7 +152,7 @@ function useStats(trades) {
 
     const byDay = {};
     closed.forEach((t) => {
-      const day = new Date(t.date).toLocaleDateString('ar-EG', { weekday: 'long' });
+      const day = new Date(t.date).toLocaleDateString('en-US', { weekday: 'long' });
       byDay[day] = byDay[day] || { r: 0, count: 0 };
       const r = computeRealizedR(t) || 0;
       byDay[day].r += r;
@@ -169,28 +173,78 @@ function useStats(trades) {
   }, [trades]);
 }
 
-// ---------- Claude API call (built-in, no key needed per platform) ----------
-async function analyzeTradeWithAI(trade) {
-  const prompt = `أنت مدرب تداول صريح ومباشر، متخصص في Price Action (Supply & Demand, CHoCH, EMA50, Break & Retest). حلل هذه الصفقة بصدق دون مجاملة. أعطني تحليلاً موجزاً جداً في JSON فقط بدون أي نص إضافي أو markdown، بالشكل التالي بالضبط:
-{
-  "verdict": "جملة واحدة صادقة عن جودة هذه الصفقة",
-  "why_result": "تفسير مباشر لماذا ربحت أو خسرت بناءً على ما كتبه المتداول، بدون تخمين معلومات غير مذكورة",
-  "psych_read": "قراءة نفسية مبنية فقط على النص المكتوب (سبب الدخول/الخروج والوسوم النفسية المختارة)، أو null إذا لا توجد إشارة كافية",
-  "rule_check": "هل سبب الدخول المكتوب يحتوي على معايير قابلة للقياس (نعم/لا) ولماذا",
-  "one_fix": "نصيحة عملية واحدة فقط لمرة قادمة"
+// ---------- Equity curve data (cumulative R over closed trades, chronological) ----------
+function useEquityCurve(trades) {
+  return useMemo(() => {
+    const closed = trades
+      .filter((t) => t.result !== 'open')
+      .map((t) => ({ t, r: computeRealizedR(t) }))
+      .filter((x) => x.r !== null)
+      .sort((a, b) => {
+        const dateDiff = new Date(a.t.date) - new Date(b.t.date);
+        if (dateDiff !== 0) return dateDiff;
+        return (a.t.createdAt || 0) - (b.t.createdAt || 0);
+      });
+
+    let cum = 0;
+    const points = closed.map((x, i) => {
+      cum += x.r;
+      return {
+        index: i + 1,
+        label: x.t.date,
+        pair: x.t.pair,
+        r: x.r,
+        cum: +cum.toFixed(2),
+      };
+    });
+
+    // prepend a zero-baseline point so the curve visibly starts at 0
+    return points.length ? [{ index: 0, label: '', pair: '', r: 0, cum: 0 }, ...points] : [];
+  }, [trades]);
 }
 
-بيانات الصفقة:
-- الزوج: ${trade.pair}
-- الاتجاه: ${trade.direction === 'buy' ? 'شراء' : 'بيع'}
-- الدخول: ${trade.entry} | إيقاف الخسارة: ${trade.sl} | الهدف: ${trade.tp} | الخروج الفعلي: ${trade.exit || 'لم يُغلق بعد'}
-- النتيجة: ${trade.result === 'win' ? 'رابحة' : trade.result === 'loss' ? 'خاسرة' : trade.result === 'breakeven' ? 'تعادل' : 'مفتوحة'}
-- سبب الدخول (بكلام المتداول): ${trade.reasonEntry || 'لم يُكتب'}
-- سبب الخروج: ${trade.reasonExit || 'لم يُكتب'}
-- الخطة الأصلية: ${trade.plan || 'لم تُكتب'}
-- الوسوم النفسية التي اختارها المتداول بنفسه: ${trade.psychTags.length ? trade.psychTags.join(', ') : 'لا يوجد'}
+// ---------- Discipline score (0-100): % of closed trades free of negative psych tags ----------
+// Includes both the new English tags and the legacy Arabic ones so old trades still count correctly.
+const NEGATIVE_PSYCH_TAGS = [
+  'Greed', 'Revenge', 'Fear', 'Broke Plan', 'Rushed Entry', 'Overconfidence', 'Hesitation',
+  'طمع', 'انتقام', 'خوف', 'كسر الخطة', 'تسرع', 'ثقة زائدة', 'تردد',
+];
+function useDisciplineScore(trades) {
+  return useMemo(() => {
+    const closed = trades.filter((t) => t.result !== 'open');
+    if (!closed.length) return null;
+    const disciplined = closed.filter((t) => !t.psychTags.some((tag) => NEGATIVE_PSYCH_TAGS.includes(tag))).length;
+    return Math.round((disciplined / closed.length) * 100);
+  }, [trades]);
+}
 
-كن دقيقاً وصريحاً. لا تخمن معلومات غير موجودة في النص. إذا كانت المعلومات ناقصة، قل ذلك صريحاً في الحقل المناسب بدل التخمين.`;
+function getGreeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : 'Good evening';
+}
+
+// ---------- Claude API call (built-in, no key needed per platform) ----------
+async function analyzeTradeWithAI(trade) {
+  const prompt = `You are a direct, no-nonsense trading coach specialized in Price Action (Supply & Demand, CHoCH, EMA50, Break & Retest). Analyze this trade honestly, with no flattery. Reply with a very concise analysis in JSON only, no extra text or markdown, in exactly this shape:
+{
+  "verdict": "one honest sentence about the quality of this trade",
+  "why_result": "a direct explanation of why it won or lost, based only on what the trader wrote, without guessing unstated info",
+  "psych_read": "a psychological read based only on the written text (entry/exit reason and chosen psych tags), or null if there isn't enough signal",
+  "rule_check": "whether the written entry reason contains measurable criteria (yes/no) and why",
+  "one_fix": "one practical piece of advice for next time"
+}
+
+Trade data:
+- Pair: ${trade.pair}
+- Direction: ${trade.direction === 'buy' ? 'Buy' : 'Sell'}
+- Entry: ${trade.entry} | Stop Loss: ${trade.sl} | Target: ${trade.tp} | Actual Exit: ${trade.exit || 'not closed yet'}
+- Result: ${trade.result === 'win' ? 'Win' : trade.result === 'loss' ? 'Loss' : trade.result === 'breakeven' ? 'Breakeven' : 'Open'}
+- Entry reason (in the trader's own words): ${trade.reasonEntry || 'not written'}
+- Exit reason: ${trade.reasonExit || 'not written'}
+- Original plan: ${trade.plan || 'not written'}
+- Psych tags the trader selected themselves: ${trade.psychTags.length ? trade.psychTags.join(', ') : 'none'}
+
+Be precise and honest. Do not guess information that isn't in the text. If information is missing, say so explicitly in the relevant field instead of guessing.`;
 
   const content = trade.chartImage
     ? [
@@ -225,6 +279,112 @@ function Stat({ label, value, accent, sub }) {
   );
 }
 
+function DashStat({ icon, iconBg, label, value, accent }) {
+  return (
+    <div className="dash-stat-card">
+      <div className="dash-stat-icon" style={{ background: iconBg }}>{icon}</div>
+      <div>
+        <div className="dash-stat-label">{label}</div>
+        <div className="dash-stat-value" style={accent ? { color: accent } : {}}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function DisciplineGauge({ score }) {
+  if (score === null) return null;
+  const radius = 34;
+  const circumference = 2 * Math.PI * radius;
+  const pct = Math.max(0, Math.min(100, score));
+  const offset = circumference - (pct / 100) * circumference;
+  const color = pct >= 70 ? '#5b8def' : pct >= 40 ? '#e5cd52' : '#e0607a';
+  const label = pct >= 70 ? 'Good' : pct >= 40 ? 'Fair' : 'Poor';
+
+  return (
+    <div className="discipline-card">
+      <svg width="88" height="88" viewBox="0 0 88 88">
+        <circle cx="44" cy="44" r={radius} fill="none" stroke="#1b2230" strokeWidth="8" />
+        <circle
+          cx="44" cy="44" r={radius} fill="none"
+          stroke={color} strokeWidth="8" strokeLinecap="round"
+          strokeDasharray={circumference} strokeDashoffset={offset}
+          transform="rotate(-90 44 44)"
+        />
+        <text x="44" y="41" textAnchor="middle" fontSize="19" fontWeight="700" fill="#f2f4f8" fontFamily="JetBrains Mono, monospace">{pct}</text>
+        <text x="44" y="55" textAnchor="middle" fontSize="9" fill="#707b8f" fontFamily="JetBrains Mono, monospace">/100</text>
+      </svg>
+      <div className="discipline-info">
+        <div className="discipline-title"><Star size={14} /> Discipline Score</div>
+        <div className="discipline-desc">Measures how well you stuck to your plan, regardless of the trade's outcome</div>
+        <div className="discipline-badge" style={{ color }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function EquityTooltip({ active, payload }) {
+  if (!active || !payload || !payload.length) return null;
+  const p = payload[0].payload;
+  if (p.index === 0) return null;
+  return (
+    <div className="equity-tooltip">
+      <div className="equity-tooltip-pair">{p.pair} · {p.label}</div>
+      <div className="equity-tooltip-r">
+        This trade: <strong className={p.r >= 0 ? 'eq-pos' : 'eq-neg'}>{p.r >= 0 ? '+' : ''}{p.r}R</strong>
+      </div>
+      <div className="equity-tooltip-cum">
+        Cumulative: <strong className={p.cum >= 0 ? 'eq-pos' : 'eq-neg'}>{p.cum >= 0 ? '+' : ''}{p.cum}R</strong>
+      </div>
+    </div>
+  );
+}
+
+function EquityCurve({ data }) {
+  if (!data.length) return null;
+  const last = data[data.length - 1].cum;
+
+  return (
+    <section className="equity-section">
+      <div className="equity-header">
+        <div className="equity-title"><LineChartIcon size={15} /> Equity Curve</div>
+        <div className={`equity-total ${last >= 0 ? 'eq-pos' : 'eq-neg'}`}>{last >= 0 ? '+' : ''}{last}R</div>
+      </div>
+      <div className="equity-chart-wrap">
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={data} margin={{ top: 8, right: 10, left: -18, bottom: 0 }}>
+            <defs>
+              <linearGradient id="equityGlow" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#4274dc" stopOpacity={0.45} />
+                <stop offset="100%" stopColor="#4274dc" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#1b2230" vertical={false} />
+            <XAxis dataKey="index" hide />
+            <YAxis
+              tick={{ fill: '#707b8f', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}
+              axisLine={false}
+              tickLine={false}
+              width={40}
+            />
+            <ReferenceLine y={0} stroke="#232b3d" strokeDasharray="4 4" />
+            <Tooltip content={<EquityTooltip />} cursor={{ stroke: '#4274dc', strokeWidth: 1, strokeDasharray: '3 3' }} />
+            <Area
+              type="monotone"
+              dataKey="cum"
+              stroke="#4274dc"
+              strokeWidth={2.5}
+              fill="url(#equityGlow)"
+              dot={false}
+              activeDot={{ r: 4, fill: '#5b8def', stroke: '#090c11', strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </section>
+  );
+}
+
 function Tag({ children, active, onClick }) {
   return (
     <button type="button" onClick={onClick} className={`tag-btn ${active ? 'tag-active' : ''}`}>
@@ -235,10 +395,10 @@ function Tag({ children, active, onClick }) {
 
 function ResultBadge({ result }) {
   const map = {
-    win: { label: 'رابحة', cls: 'badge-win' },
-    loss: { label: 'خاسرة', cls: 'badge-loss' },
-    breakeven: { label: 'تعادل', cls: 'badge-be' },
-    open: { label: 'مفتوحة', cls: 'badge-open' },
+    win: { label: 'Win', cls: 'badge-win' },
+    loss: { label: 'Loss', cls: 'badge-loss' },
+    breakeven: { label: 'Breakeven', cls: 'badge-be' },
+    open: { label: 'Open', cls: 'badge-open' },
   };
   const m = map[result];
   return <span className={`badge ${m.cls}`}>{m.label}</span>;
@@ -257,12 +417,12 @@ function PairPicker({ value, onChange }) {
         onFocus={() => { setOpen(true); setQuery(''); }}
         onChange={(e) => setQuery(e.target.value)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="اكتب للبحث..."
+        placeholder="Type to search..."
         className="pair-input"
       />
       {open && (
         <div className="pair-dropdown">
-          {filtered.length === 0 && <div className="pair-empty">لا يوجد تطابق</div>}
+          {filtered.length === 0 && <div className="pair-empty">No match found</div>}
           {filtered.map((p) => (
             <div
               key={p}
@@ -296,21 +456,21 @@ function TradeForm({ onSave, onCancel }) {
     <div className="form-card">
       <div className="form-grid">
         <label className="field">
-          <span>التاريخ</span>
+          <span>Date</span>
           <input type="date" value={t.date} onChange={(e) => set('date', e.target.value)} />
         </label>
         <label className="field">
-          <span>الزوج</span>
+          <span>Pair</span>
           <PairPicker value={t.pair} onChange={(v) => set('pair', v)} />
         </label>
         <label className="field">
-          <span>الاتجاه</span>
+          <span>Direction</span>
           <div className="dir-toggle">
             <button type="button" className={t.direction === 'buy' ? 'dir-active dir-buy' : 'dir-buy'} onClick={() => set('direction', 'buy')}>
-              <TrendingUp size={14} /> شراء
+              <TrendingUp size={14} /> Buy
             </button>
             <button type="button" className={t.direction === 'sell' ? 'dir-active dir-sell' : 'dir-sell'} onClick={() => set('direction', 'sell')}>
-              <TrendingDown size={14} /> بيع
+              <TrendingDown size={14} /> Sell
             </button>
           </div>
         </label>
@@ -318,58 +478,58 @@ function TradeForm({ onSave, onCancel }) {
 
       <div className="form-grid form-grid-4">
         <label className="field">
-          <span>الدخول</span>
+          <span>Entry</span>
           <input type="number" step="any" value={t.entry} onChange={(e) => set('entry', e.target.value)} placeholder="1.2750" />
         </label>
         <label className="field">
-          <span>إيقاف الخسارة</span>
+          <span>Stop Loss</span>
           <input type="number" step="any" value={t.sl} onChange={(e) => set('sl', e.target.value)} placeholder="1.2700" />
         </label>
         <label className="field">
-          <span>الهدف</span>
+          <span>Target</span>
           <input type="number" step="any" value={t.tp} onChange={(e) => set('tp', e.target.value)} placeholder="1.2850" />
         </label>
         <label className="field">
-          <span>الخروج الفعلي</span>
-          <input type="number" step="any" value={t.exit} onChange={(e) => set('exit', e.target.value)} placeholder="اختياري" />
+          <span>Actual Exit</span>
+          <input type="number" step="any" value={t.exit} onChange={(e) => set('exit', e.target.value)} placeholder="optional" />
         </label>
       </div>
 
       {rr && (
-        <div className="rr-preview">نسبة المخاطرة/العائد المخططة: <strong>1:{rr}</strong></div>
+        <div className="rr-preview">Planned Risk:Reward: <strong>1:{rr}</strong></div>
       )}
 
       <label className="field">
-        <span>النتيجة</span>
+        <span>Result</span>
         <div className="result-toggle">
           {['win', 'loss', 'breakeven', 'open'].map((r) => (
             <button key={r} type="button" className={t.result === r ? `res-active res-${r}` : `res-${r}`} onClick={() => set('result', r)}>
-              {{ win: 'رابحة', loss: 'خاسرة', breakeven: 'تعادل', open: 'مفتوحة' }[r]}
+              {{ win: 'Win', loss: 'Loss', breakeven: 'Breakeven', open: 'Open' }[r]}
             </button>
           ))}
         </div>
       </label>
 
       <label className="field">
-        <span>سبب الدخول (اكتب بصيغة محددة وقابلة للقياس: ما الذي رأيته بالضبط؟)</span>
+        <span>Entry reason (be specific and measurable: what exactly did you see?)</span>
         <textarea rows={3} value={t.reasonEntry} onChange={(e) => set('reasonEntry', e.target.value)}
-          placeholder="مثال: CHoCH على 1H بإغلاق شمعة كامل + ريتست لـ EMA50 + دخول من Supply zone لم تُلمس من قبل" />
+          placeholder="e.g. CHoCH on 1H with a full candle close + retest of EMA50 + entry from an untouched supply zone" />
       </label>
 
       <label className="field">
-        <span>سبب الخروج</span>
+        <span>Exit reason</span>
         <textarea rows={2} value={t.reasonExit} onChange={(e) => set('reasonExit', e.target.value)}
-          placeholder="مثال: ضرب الهدف / أغلقت يدوياً بعد كسر EMA50 / ضرب SL" />
+          placeholder="e.g. Hit target / closed manually after EMA50 break / hit SL" />
       </label>
 
       <label className="field">
-        <span>الخطة الأصلية قبل الدخول</span>
+        <span>Original plan before entry</span>
         <textarea rows={2} value={t.plan} onChange={(e) => set('plan', e.target.value)}
-          placeholder="ما كانت خطتك قبل أن تدخل؟ هل التزمت بها؟" />
+          placeholder="What was your plan before you entered? Did you stick to it?" />
       </label>
 
       <label className="field">
-        <span>الحالة النفسية وقت الصفقة (اختر كل ما ينطبق بصدق)</span>
+        <span>Psychological state during the trade (select all that honestly apply)</span>
         <div className="tags-wrap">
           {PSYCH_TAGS.map((tag) => (
             <Tag key={tag} active={t.psychTags.includes(tag)} onClick={() => {
@@ -380,14 +540,14 @@ function TradeForm({ onSave, onCancel }) {
       </label>
 
       <label className="field">
-        <span>صورة الشارت (اختياري)</span>
+        <span>Chart image (optional)</span>
         <input type="file" accept="image/*" onChange={handleImage} className="file-input" />
         {t.chartImage && <img src={t.chartImage} alt="chart" className="chart-thumb" />}
       </label>
 
       <div className="form-actions">
-        <button className="btn-secondary" onClick={onCancel}>إلغاء</button>
-        <button className="btn-primary" onClick={() => onSave(t)}>حفظ الصفقة</button>
+        <button className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button className="btn-primary" onClick={() => onSave(t)}>Save Trade</button>
       </div>
     </div>
   );
@@ -425,16 +585,16 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
       {open && !editing && (
         <div className="trade-body">
           <div className="trade-meta-grid">
-            <div><span className="meta-label">دخول</span>{trade.entry || '—'}</div>
+            <div><span className="meta-label">Entry</span>{trade.entry || '—'}</div>
             <div><span className="meta-label">SL</span>{trade.sl || '—'}</div>
             <div><span className="meta-label">TP</span>{trade.tp || '—'}</div>
-            <div><span className="meta-label">خروج</span>{trade.exit || '—'}</div>
-            <div><span className="meta-label">R:R مخطط</span>{rr ? `1:${rr}` : '—'}</div>
+            <div><span className="meta-label">Exit</span>{trade.exit || '—'}</div>
+            <div><span className="meta-label">Planned R:R</span>{rr ? `1:${rr}` : '—'}</div>
           </div>
 
-          {trade.reasonEntry && <div className="trade-text"><span className="meta-label">سبب الدخول</span><p>{trade.reasonEntry}</p></div>}
-          {trade.reasonExit && <div className="trade-text"><span className="meta-label">سبب الخروج</span><p>{trade.reasonExit}</p></div>}
-          {trade.plan && <div className="trade-text"><span className="meta-label">الخطة</span><p>{trade.plan}</p></div>}
+          {trade.reasonEntry && <div className="trade-text"><span className="meta-label">Entry Reason</span><p>{trade.reasonEntry}</p></div>}
+          {trade.reasonExit && <div className="trade-text"><span className="meta-label">Exit Reason</span><p>{trade.reasonExit}</p></div>}
+          {trade.plan && <div className="trade-text"><span className="meta-label">Plan</span><p>{trade.plan}</p></div>}
           {trade.psychTags.length > 0 && (
             <div className="tags-wrap">{trade.psychTags.map((t) => <span key={t} className="tag-readonly">{t}</span>)}</div>
           )}
@@ -442,24 +602,24 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
 
           <div className="ai-section">
             {!trade.aiAnalysis && (
-              <button className="btn-ai btn-ai-disabled" onClick={() => {}} disabled title="هذه الميزة متوقفة مؤقتاً بعد النشر خارج Claude — قادمة في تحديث لاحق">
-                <Brain size={16} /> التحليل بالذكاء الاصطناعي (قادم قريباً)
+              <button className="btn-ai btn-ai-disabled" onClick={() => {}} disabled title="This feature is temporarily paused after deploying outside Claude — coming in a future update">
+                <Brain size={16} /> AI Analysis (Coming Soon)
               </button>
             )}
             {trade.aiAnalysis && (
               <div className="ai-result">
                 <div className="ai-row"><Sparkles size={14} /><strong>{trade.aiAnalysis.verdict}</strong></div>
-                <div className="ai-row-detail"><span className="meta-label">لماذا هذه النتيجة</span><p>{trade.aiAnalysis.why_result}</p></div>
-                {trade.aiAnalysis.psych_read && <div className="ai-row-detail"><span className="meta-label">القراءة النفسية</span><p>{trade.aiAnalysis.psych_read}</p></div>}
-                <div className="ai-row-detail"><span className="meta-label">فحص القواعد</span><p>{trade.aiAnalysis.rule_check}</p></div>
-                <div className="ai-row-detail fix"><span className="meta-label">تحسين واحد لمرة قادمة</span><p>{trade.aiAnalysis.one_fix}</p></div>
+                <div className="ai-row-detail"><span className="meta-label">Why This Result</span><p>{trade.aiAnalysis.why_result}</p></div>
+                {trade.aiAnalysis.psych_read && <div className="ai-row-detail"><span className="meta-label">Psychological Read</span><p>{trade.aiAnalysis.psych_read}</p></div>}
+                <div className="ai-row-detail"><span className="meta-label">Rule Check</span><p>{trade.aiAnalysis.rule_check}</p></div>
+                <div className="ai-row-detail fix"><span className="meta-label">One Fix for Next Time</span><p>{trade.aiAnalysis.one_fix}</p></div>
               </div>
             )}
           </div>
 
           <div className="card-actions">
-            <button className="btn-edit" onClick={startEdit}><Pencil size={14} /> تعديل / إغلاق</button>
-            <button className="btn-delete" onClick={() => onDelete(trade.id)}><Trash2 size={14} /> حذف</button>
+            <button className="btn-edit" onClick={startEdit}><Pencil size={14} /> Edit / Close</button>
+            <button className="btn-delete" onClick={() => onDelete(trade.id)}><Trash2 size={14} /> Delete</button>
           </div>
         </div>
       )}
@@ -467,23 +627,23 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
       {open && editing && (
         <div className="trade-body edit-body">
           <div className="form-grid form-grid-4">
-            <label className="field"><span>الخروج الفعلي</span><input type="number" step="any" value={draft.exit} onChange={(e) => setD('exit', e.target.value)} placeholder="اختياري" /></label>
-            <label className="field"><span>النتيجة</span>
+            <label className="field"><span>Actual Exit</span><input type="number" step="any" value={draft.exit} onChange={(e) => setD('exit', e.target.value)} placeholder="optional" /></label>
+            <label className="field"><span>Result</span>
               <div className="result-toggle">
                 {['win', 'loss', 'breakeven', 'open'].map((r) => (
                   <button key={r} type="button" className={draft.result === r ? `res-active res-${r}` : `res-${r}`} onClick={() => setD('result', r)}>
-                    {{ win: 'رابحة', loss: 'خاسرة', breakeven: 'تعادل', open: 'مفتوحة' }[r]}
+                    {{ win: 'Win', loss: 'Loss', breakeven: 'Breakeven', open: 'Open' }[r]}
                   </button>
                 ))}
               </div>
             </label>
           </div>
           <label className="field">
-            <span>سبب الخروج</span>
-            <textarea rows={2} value={draft.reasonExit} onChange={(e) => setD('reasonExit', e.target.value)} placeholder="ضرب الهدف / أغلقت يدوياً بعد كسر EMA50 / ضرب SL" />
+            <span>Exit Reason</span>
+            <textarea rows={2} value={draft.reasonExit} onChange={(e) => setD('reasonExit', e.target.value)} placeholder="Hit target / closed manually after EMA50 break / hit SL" />
           </label>
           <label className="field">
-            <span>الحالة النفسية وقت الإغلاق</span>
+            <span>Psychological state at close</span>
             <div className="tags-wrap">
               {PSYCH_TAGS.map((tag) => (
                 <Tag key={tag} active={draft.psychTags.includes(tag)} onClick={() => {
@@ -493,8 +653,8 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
             </div>
           </label>
           <div className="form-actions">
-            <button className="btn-secondary" onClick={cancelEdit}>إلغاء</button>
-            <button className="btn-primary" onClick={saveEdit}>حفظ التعديل</button>
+            <button className="btn-secondary" onClick={cancelEdit}>Cancel</button>
+            <button className="btn-primary" onClick={saveEdit}>Save Changes</button>
           </div>
         </div>
       )}
@@ -505,6 +665,8 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
 export default function TradingJournal() {
   const { trades, add, update, remove, syncStatus } = useTrades();
   const stats = useStats(trades);
+  const equityData = useEquityCurve(trades);
+  const disciplineScore = useDisciplineScore(trades);
   const [showForm, setShowForm] = useState(false);
   const [analyzingId, setAnalyzingId] = useState(null);
   const [filterResult, setFilterResult] = useState('all');
@@ -522,31 +684,31 @@ export default function TradingJournal() {
       const result = await analyzeTradeWithAI(trade);
       update(id, { aiAnalysis: result });
     } catch (e) {
-      setError('فشل التحليل، حاول مرة أخرى');
+      setError('Analysis failed, please try again');
     } finally {
       setAnalyzingId(null);
     }
   };
 
   return (
-    <div className="app" dir="rtl">
+    <div className="app" dir="ltr">
       <style>{css}</style>
 
       <div className="ticker-strip">
         <span className="ticker-dot" />
         <span className="ticker-label">SESSION</span>
-        <span className="ticker-val">{new Date().toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'short' })}</span>
+        <span className="ticker-val">{new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'short' })}</span>
         <span className="ticker-sep" />
-        <span className="ticker-label">R صافي</span>
+        <span className="ticker-label">NET R</span>
         <span className={`ticker-val ${stats.totalR >= 0 ? 'tv-up' : 'tv-down'}`}>{stats.totalR >= 0 ? '+' : ''}{stats.totalR}R</span>
         <span className="ticker-sep" />
         <span className="ticker-label">WIN%</span>
         <span className="ticker-val">{stats.winRate}%</span>
         <span className="ticker-sep" />
         <span className={`sync-pill ${syncStatus}`}>
-          {syncStatus === 'synced' && <><Cloud size={11} /> محفوظ</>}
-          {syncStatus === 'loading' && <>...جاري التحميل</>}
-          {syncStatus === 'error' && <><CloudOff size={11} /> فشل الحفظ</>}
+          {syncStatus === 'synced' && <><Cloud size={11} /> Synced</>}
+          {syncStatus === 'loading' && <>Loading...</>}
+          {syncStatus === 'error' && <><CloudOff size={11} /> Sync failed</>}
         </span>
       </div>
 
@@ -554,30 +716,66 @@ export default function TradingJournal() {
         <div className="brand-block">
           <div className="brand-mark">PA</div>
           <div>
-            <h1>دفتر التنفيذ</h1>
-            <p className="subtitle">سجّل قرارك، لا توصية أحد</p>
+            <h1>PA Journal</h1>
+            <p className="subtitle">Log your decision, not anyone's advice</p>
           </div>
         </div>
         <button className="btn-primary btn-new" onClick={() => setShowForm((s) => !s)}>
-          {showForm ? <X size={18} /> : <Plus size={18} />} {showForm ? 'إغلاق' : 'صفقة جديدة'}
+          {showForm ? <X size={18} /> : <Plus size={18} />} {showForm ? 'Close' : 'New Trade'}
         </button>
       </header>
 
-      <section className="stats-grid">
-        <Stat label="إجمالي الصفقات" value={stats.totalTrades} />
-        <Stat label="نسبة الفوز" value={`${stats.winRate}%`} accent={stats.winRate >= 50 ? '#5b8def' : '#e23b3b'} />
-        <Stat label="صافي R" value={`${stats.totalR >= 0 ? '+' : ''}${stats.totalR}R`} accent={stats.totalR >= 0 ? '#5b8def' : '#e23b3b'} />
-        <Stat label="متوسط R:R المخطط" value={stats.avgRR === '—' ? '—' : `1:${stats.avgRR}`} />
-        <Stat label="أفضل زوج" value={stats.bestPair || '—'} />
-        <Stat label="أفضل يوم" value={stats.bestDay || '—'} />
+      <section className="dash-hero">
+        <div className="dash-greeting">
+          <div className="dash-greeting-title">{getGreeting()}, Trader 👋</div>
+          <div className="dash-greeting-sub">Here's an overview of your performance</div>
+        </div>
+
+        <div className="dash-stats-grid">
+          <DashStat
+            icon={<Target size={16} color="#c4aee8" />}
+            iconBg="rgba(155,127,196,0.18)"
+            label="Win Rate"
+            value={`${stats.winRate}%`}
+            accent={stats.winRate >= 50 ? '#5b8def' : '#e23b3b'}
+          />
+          <DashStat
+            icon={<BarChart3 size={16} color="#6390e7" />}
+            iconBg="rgba(99,144,231,0.15)"
+            label="Avg Planned R:R"
+            value={stats.avgRR === '—' ? '—' : `1:${stats.avgRR}`}
+          />
+          <DashStat
+            icon={<TrendingUp size={16} color="#5be0a0" />}
+            iconBg="rgba(91,224,160,0.15)"
+            label="Net R"
+            value={`${stats.totalR >= 0 ? '+' : ''}${stats.totalR}R`}
+            accent={stats.totalR >= 0 ? '#5b8def' : '#e23b3b'}
+          />
+          <DashStat
+            icon={<Layers size={16} color="#e5cd52" />}
+            iconBg="rgba(229,205,82,0.15)"
+            label="Total Trades"
+            value={stats.totalTrades}
+          />
+        </div>
+
+        <div className="dash-secondary-row">
+          <span>Best Pair: <strong>{stats.bestPair || '—'}</strong></span>
+          <span>Best Day: <strong>{stats.bestDay || '—'}</strong></span>
+        </div>
+
+        <DisciplineGauge score={disciplineScore} />
       </section>
 
       {stats.topMistakeTag && (
         <div className="insight-banner">
           <AlertCircle size={16} />
-          الخطأ المتكرر في خسائرك: <strong>{stats.topMistakeTag}</strong> ({stats.tagCounts[stats.topMistakeTag]} مرة)
+          Recurring mistake in your losses: <strong>{stats.topMistakeTag}</strong> ({stats.tagCounts[stats.topMistakeTag]}x)
         </div>
       )}
+
+      <EquityCurve data={equityData} />
 
       {showForm && <TradeForm onSave={handleSave} onCancel={() => setShowForm(false)} />}
 
@@ -587,7 +785,7 @@ export default function TradingJournal() {
         <Filter size={14} />
         {['all', 'win', 'loss', 'open'].map((f) => (
           <button key={f} className={`filter-btn ${filterResult === f ? 'filter-active' : ''}`} onClick={() => setFilterResult(f)}>
-            {{ all: 'الكل', win: 'رابحة', loss: 'خاسرة', open: 'مفتوحة' }[f]}
+            {{ all: 'All', win: 'Win', loss: 'Loss', open: 'Open' }[f]}
           </button>
         ))}
       </div>
@@ -596,7 +794,7 @@ export default function TradingJournal() {
         {filtered.length === 0 && (
           <div className="empty-state">
             <BarChart3 size={32} />
-            <p>لا توجد صفقات بعد. ابدأ بتسجيل أول صفقة لك.</p>
+            <p>No trades yet. Start by logging your first trade.</p>
           </div>
         )}
         {filtered.map((t) => (
@@ -608,7 +806,7 @@ export default function TradingJournal() {
 }
 
 const css = `
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
   --bg: #090c11;
@@ -635,7 +833,7 @@ const css = `
 * { box-sizing: border-box; }
 
 .app {
-  font-family: 'IBM Plex Sans Arabic', sans-serif;
+  font-family: 'Inter', sans-serif;
   background:
     radial-gradient(900px 600px at 85% 0%, rgba(66,116,220,0.16), transparent 60%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg) 45%, var(--bg-grad) 130%);
@@ -664,7 +862,7 @@ const css = `
 .ticker-val.tv-up { color: var(--blue-bright); }
 .ticker-val.tv-down { color: var(--rose); }
 .ticker-sep { width: 1px; height: 12px; background: var(--line); flex-shrink: 0; }
-.sync-pill { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--text-dim); margin-right: auto; }
+.sync-pill { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--text-dim); margin-left: auto; }
 .sync-pill.synced { color: var(--blue-bright); }
 .sync-pill.error { color: var(--red-strong); }
 
@@ -708,12 +906,41 @@ const css = `
 .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 700; color: var(--text); }
 .stat-sub { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
 
+.dash-hero { margin: 18px 16px 14px; }
+.dash-greeting-title { font-family: 'Oswald', sans-serif; font-size: 17px; font-weight: 600; color: var(--text); }
+.dash-greeting-sub { font-size: 12px; color: var(--text-dim); margin: 2px 0 12px; }
+.dash-stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 8px; }
+.dash-stat-card { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; }
+.dash-stat-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.dash-stat-label { font-size: 10.5px; color: var(--text-dim); margin-bottom: 3px; }
+.dash-stat-value { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; color: var(--text); }
+.dash-secondary-row { display: flex; gap: 16px; font-size: 11.5px; color: var(--text-dim); margin: 2px 2px 12px; flex-wrap: wrap; }
+.dash-secondary-row strong { color: var(--text-mid); }
+
+.discipline-card { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px; display: flex; align-items: center; gap: 14px; }
+.discipline-info { flex: 1; }
+.discipline-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text-mid); margin-bottom: 4px; }
+.discipline-desc { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-bottom: 6px; }
+.discipline-badge { font-size: 12px; font-weight: 700; }
+
 .insight-banner {
   background: var(--amber-dim); border: 1px solid #5e4a24; color: var(--amber);
   border-radius: 10px; padding: 10px 14px; font-size: 12.5px;
   display: flex; align-items: center; gap: 8px; margin: 0 16px 14px;
 }
 .error-banner { background: var(--rose-dim); border: 1px solid #5a2e38; color: var(--rose); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 0 16px 14px; }
+
+.equity-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px 14px 4px; margin: 0 16px 14px; }
+.equity-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.equity-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text-mid); }
+.equity-total { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; }
+.equity-chart-wrap { margin: 0 -6px; }
+.eq-pos { color: var(--blue-bright); }
+.eq-neg { color: var(--red-strong); }
+.equity-tooltip { background: #0c1018; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; box-shadow: 0 10px 24px rgba(0,0,0,0.5); }
+.equity-tooltip-pair { color: var(--text-mid); font-weight: 600; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.equity-tooltip-r, .equity-tooltip-cum { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+.equity-tooltip-cum { margin-top: 2px; }
 
 .form-card { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 16px; margin: 0 16px 16px; }
 .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
@@ -800,7 +1027,7 @@ const css = `
 
 .trade-body { padding: 0 14px 14px; border-top: 1px solid var(--line-soft); }
 .trade-meta-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 12px 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.meta-label { display: block; font-size: 10px; color: var(--text-dim); font-family: 'IBM Plex Sans Arabic', sans-serif; margin-bottom: 2px; }
+.meta-label { display: block; font-size: 10px; color: var(--text-dim); font-family: 'Inter', sans-serif; margin-bottom: 2px; }
 .trade-text { margin-bottom: 10px; }
 .trade-text p { margin: 0; font-size: 13px; color: var(--text-mid); line-height: 1.6; }
 
