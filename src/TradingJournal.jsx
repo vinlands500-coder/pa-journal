@@ -1196,6 +1196,85 @@ function PlaybookView({ playbook, onClose }) {
   );
 }
 
+// ---------- Pre-Trade Checklist ----------
+const CHECKLIST_ITEMS = [
+  { id: 'trend',    label: 'الاتجاه العام واضح على Daily/4H',          desc: 'تعرف إذا كنت تتداول مع الاتجاه أو عكسه' },
+  { id: 'zone',     label: 'منطقة Supply أو Demand مؤكدة وغير مُلمَسة', desc: 'المنطقة واضحة وما وصلها السعر من قبل' },
+  { id: 'choch',    label: 'CHoCH أو BOS مؤكد على 1H أو 2H',           desc: 'فيه تحول هيكلي يدعم الدخول' },
+  { id: 'ema',      label: 'EMA50 متوافق مع اتجاه الصفقة',              desc: 'السعر فوق EMA50 للشراء أو تحته للبيع' },
+  { id: 'rr',       label: 'نسبة R:R لا تقل عن 1:2',                   desc: 'المكسب المحتمل ضعف الخسارة على الأقل' },
+  { id: 'risk',     label: 'المخاطرة محسوبة ولا تتجاوز 1-2% من الحساب', desc: 'استخدمت الحاسبة وعرفت حجم اللوت' },
+  { id: 'psych',    label: 'حالتي النفسية مناسبة للتداول',               desc: 'لست في حالة انتقام أو خوف أو FOMO' },
+  { id: 'plan',     label: 'عندي خطة واضحة إذا تحرك السوق ضدي',         desc: 'أعرف متى أخرج بخسارة دون تردد' },
+];
+
+function PreTradeChecklist({ onClose }) {
+  const [checked, setChecked] = useState({});
+  const [submitted, setSubmitted]   = useState(false);
+
+  const toggle = (id) => {
+    if (submitted) return;
+    setChecked((p) => ({ ...p, [id]: !p[id] }));
+  };
+
+  const allChecked = CHECKLIST_ITEMS.every((item) => checked[item.id]);
+  const checkedCount = CHECKLIST_ITEMS.filter((item) => checked[item.id]).length;
+
+  const reset = () => { setChecked({}); setSubmitted(false); };
+
+  return (
+    <div className="checklist-card">
+      <div className="calc-header">
+        <div className="calc-title">
+          ☑️ قائمة التحقق قبل الدخول
+        </div>
+        <button className="calc-close" onClick={onClose}><X size={16} /></button>
+      </div>
+
+      <div className="checklist-progress">
+        <div className="checklist-progress-bar">
+          <div className="checklist-progress-fill" style={{ width: `${(checkedCount / CHECKLIST_ITEMS.length) * 100}%` }} />
+        </div>
+        <span className="checklist-progress-label">{checkedCount}/{CHECKLIST_ITEMS.length}</span>
+      </div>
+
+      <div className="checklist-items">
+        {CHECKLIST_ITEMS.map((item) => (
+          <div
+            key={item.id}
+            className={`checklist-item ${checked[item.id] ? 'checklist-item-checked' : ''}`}
+            onClick={() => toggle(item.id)}
+          >
+            <div className={`checklist-box ${checked[item.id] ? 'checklist-box-checked' : ''}`}>
+              {checked[item.id] && <span>✓</span>}
+            </div>
+            <div className="checklist-text">
+              <div className="checklist-label">{item.label}</div>
+              <div className="checklist-desc">{item.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {!submitted ? (
+        <button
+          className={`checklist-submit ${allChecked ? 'checklist-submit-ready' : 'checklist-submit-disabled'}`}
+          onClick={() => allChecked && setSubmitted(true)}
+        >
+          {allChecked ? '✅ تحقق من الشروط — جاهز للدخول' : `أكمل باقي الشروط (${CHECKLIST_ITEMS.length - checkedCount} متبقي)`}
+        </button>
+      ) : (
+        <div className="checklist-result">
+          <div className="checklist-result-icon">✅</div>
+          <div className="checklist-result-title">جاهز للدخول</div>
+          <div className="checklist-result-sub">التزمت بكل الشروط — ادخل الصفقة بثقة وسجّلها في الجورنال</div>
+          <button className="checklist-reset" onClick={reset}>إعادة تعيين للصفقة التالية</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TradingJournal() {
   const { trades, add, update, remove, syncStatus } = useTrades();
   const stats = useStats(trades);
@@ -1207,6 +1286,7 @@ export default function TradingJournal() {
   const [showForm, setShowForm] = useState(false);
   const [showCalc, setShowCalc] = useState(false);
   const [showPlaybook, setShowPlaybook] = useState(false);
+  const [showChecklist, setShowChecklist] = useState(false);
   const [analyzingId, setAnalyzingId] = useState(null);
   const [filterResult, setFilterResult] = useState('all');
   const [error, setError] = useState(null);
@@ -1260,13 +1340,16 @@ export default function TradingJournal() {
           </div>
         </div>
         <div className="header-actions">
-          <button className="btn-calc" onClick={() => { setShowPlaybook((s) => !s); setShowCalc(false); setShowForm(false); }}>
+          <button className="btn-calc" onClick={() => { setShowPlaybook((s) => !s); setShowCalc(false); setShowForm(false); setShowChecklist(false); }}>
             <Star size={16} /> Playbook
           </button>
-          <button className="btn-calc" onClick={() => { setShowCalc((s) => !s); setShowForm(false); setShowPlaybook(false); }}>
+          <button className="btn-calc" onClick={() => { setShowChecklist((s) => !s); setShowCalc(false); setShowForm(false); setShowPlaybook(false); }}>
+            ☑️ Checklist
+          </button>
+          <button className="btn-calc" onClick={() => { setShowCalc((s) => !s); setShowForm(false); setShowPlaybook(false); setShowChecklist(false); }}>
             <Target size={16} /> حاسبة
           </button>
-          <button className="btn-primary btn-new" onClick={() => { setShowForm((s) => !s); setShowCalc(false); setShowPlaybook(false); }}>
+          <button className="btn-primary btn-new" onClick={() => { setShowForm((s) => !s); setShowCalc(false); setShowPlaybook(false); setShowChecklist(false); }}>
             {showForm ? <X size={18} /> : <Plus size={18} />} {showForm ? 'إغلاق' : 'صفقة جديدة'}
           </button>
         </div>
@@ -1331,6 +1414,8 @@ export default function TradingJournal() {
       <EmotionStatsPanel stats={emotionStats} />
 
       {showPlaybook && <PlaybookView playbook={playbook} onClose={() => setShowPlaybook(false)} />}
+
+      {showChecklist && <PreTradeChecklist onClose={() => setShowChecklist(false)} />}
 
       {showCalc && <PositionSizeCalc onClose={() => setShowCalc(false)} />}
 
@@ -1478,6 +1563,28 @@ const css = `
 .dir-badge.sell { background: rgba(226,59,59,0.12);  color: #e07070; }
 .btn-pb { background: var(--panel-2); border: 1px solid var(--line); color: var(--text-dim); padding: 7px 11px; border-radius: 8px; font-size: 11.5px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
 .btn-pb-active { background: rgba(229,205,82,0.12); border-color: rgba(229,205,82,0.4); color: #e5cd52; }
+
+.checklist-card { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 16px; margin: 0 16px 14px; }
+.checklist-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.checklist-progress-bar { flex: 1; height: 5px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.checklist-progress-fill { height: 100%; background: #4274dc; border-radius: 3px; transition: width 0.3s ease; }
+.checklist-progress-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); min-width: 28px; }
+.checklist-items { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.checklist-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px; border-radius: 10px; border: 1px solid var(--line-soft); background: var(--panel-2); cursor: pointer; transition: all 0.15s; }
+.checklist-item-checked { background: rgba(66,116,220,0.08); border-color: rgba(66,116,220,0.3); }
+.checklist-box { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--line); background: var(--panel); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; font-size: 13px; color: #5b8def; }
+.checklist-box-checked { background: #4274dc; border-color: #4274dc; color: #fff; }
+.checklist-text { flex: 1; }
+.checklist-label { font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 2px; line-height: 1.4; }
+.checklist-desc { font-size: 11px; color: var(--text-dim); line-height: 1.4; }
+.checklist-submit { width: 100%; padding: 13px; border-radius: 10px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; }
+.checklist-submit-ready { background: #4274dc; color: #fff; }
+.checklist-submit-disabled { background: var(--panel-2); color: var(--text-dim); cursor: not-allowed; border: 1px solid var(--line-soft); }
+.checklist-result { text-align: center; padding: 16px 8px; }
+.checklist-result-icon { font-size: 40px; margin-bottom: 8px; }
+.checklist-result-title { font-size: 18px; font-weight: 700; color: #5b8def; margin-bottom: 6px; }
+.checklist-result-sub { font-size: 12px; color: var(--text-mid); line-height: 1.6; margin-bottom: 14px; }
+.checklist-reset { background: var(--panel-2); border: 1px solid var(--line); color: var(--text-dim); padding: 9px 18px; border-radius: 9px; font-size: 12px; cursor: pointer; }
 .brand-block { display: flex; align-items: center; gap: 12px; }
 .brand-mark {
   width: 38px; height: 38px; border-radius: 9px;
