@@ -278,6 +278,39 @@ function useEmotionStats(trades) {
 }
 
 // ---------- Setup stats: per-setup win rate, avg R, net R, count ----------
+// ---------- Calendar Heatmap data ----------
+function useCalendarData(trades, year, month) {
+  return useMemo(() => {
+    // Build a map: "YYYY-MM-DD" → { r, net }
+    const dayMap = {};
+    trades.filter((t) => t.result !== 'open').forEach((t) => {
+      if (!t.date) return;
+      const [y, m] = t.date.split('-').map(Number);
+      if (y !== year || m !== month) return;
+      if (!dayMap[t.date]) dayMap[t.date] = { wins: 0, losses: 0, be: 0, netR: 0 };
+      const r = computeRealizedR(t);
+      if (r !== null) dayMap[t.date].netR += r;
+      if (t.result === 'win')        dayMap[t.date].wins++;
+      else if (t.result === 'loss')  dayMap[t.date].losses++;
+      else                           dayMap[t.date].be++;
+    });
+
+    // days in month
+    const daysInMonth = new Date(year, month, 0).getDate();
+    // weekday of first day (0=Sun … 6=Sat), we use Sat-based week (Arabic)
+    const firstDay = new Date(year, month - 1, 1).getDay(); // 0=Sun
+
+    const cells = [];
+    // leading empty cells so day 1 lands on right column
+    for (let i = 0; i < firstDay; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      cells.push({ day: d, key, ...(dayMap[key] || null) });
+    }
+    return { cells, daysInMonth, dayMap };
+  }, [trades, year, month]);
+}
+
 function useSetupStats(trades) {
   return useMemo(() => {
     const closed = trades.filter((t) => t.result !== 'open');
@@ -467,6 +500,73 @@ function EquityCurve({ data }) {
             />
           </AreaChart>
         </ResponsiveContainer>
+      </div>
+    </section>
+  );
+}
+
+const MONTH_NAMES_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+const DAY_NAMES_AR   = ['أح','إث','ث','أر','خ','ج','س'];
+
+function CalendarHeatmap({ trades }) {
+  const now = new Date();
+  const [year,  setYear]  = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+
+  const { cells, dayMap } = useCalendarData(trades, year, month);
+
+  const prevMonth = () => { if (month === 1) { setYear(y => y-1); setMonth(12); } else setMonth(m => m-1); };
+  const nextMonth = () => { if (month === 12) { setYear(y => y+1); setMonth(1); } else setMonth(m => m+1); };
+
+  // summary for this month
+  const monthTrades = trades.filter((t) => t.result !== 'open' && t.date?.startsWith(`${year}-${String(month).padStart(2,'0')}`));
+  const monthR = monthTrades.reduce((s, t) => { const r = computeRealizedR(t); return s + (r || 0); }, 0);
+  const monthWins = monthTrades.filter(t => t.result === 'win').length;
+
+  function cellColor(cell) {
+    if (!cell || !dayMap[cell.key]) return 'cal-empty';
+    const d = dayMap[cell.key];
+    const net = d.netR;
+    if (net > 0)  return 'cal-win';
+    if (net < 0)  return 'cal-loss';
+    return 'cal-be';
+  }
+
+  return (
+    <section className="calendar-section">
+      <div className="calendar-header">
+        <button className="cal-nav" onClick={prevMonth}>‹</button>
+        <div className="calendar-title-block">
+          <span className="calendar-month-name">{MONTH_NAMES_AR[month-1]} {year}</span>
+          <span className={`calendar-month-r ${monthR >= 0 ? 'eq-pos' : 'eq-neg'}`}>
+            {monthR >= 0 ? '+' : ''}{monthR.toFixed(2)}R · {monthWins}/{monthTrades.length} فوز
+          </span>
+        </div>
+        <button className="cal-nav" onClick={nextMonth}>›</button>
+      </div>
+
+      <div className="cal-grid-head">
+        {DAY_NAMES_AR.map(d => <span key={d}>{d}</span>)}
+      </div>
+
+      <div className="cal-grid">
+        {cells.map((cell, i) => {
+          if (!cell) return <div key={`e-${i}`} className="cal-cell cal-null" />;
+          const d = cell.key && dayMap[cell.key];
+          return (
+            <div key={cell.key} className={`cal-cell ${cellColor(cell)}`}>
+              <span className="cal-day-num">{cell.day}</span>
+              {d && <span className="cal-day-r">{d.netR >= 0 ? '+' : ''}{d.netR.toFixed(1)}R</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="cal-legend">
+        <span><span className="cal-dot cal-win" />ربح</span>
+        <span><span className="cal-dot cal-loss" />خسارة</span>
+        <span><span className="cal-dot cal-be" />تعادل</span>
+        <span><span className="cal-dot cal-empty" />بدون صفقات</span>
       </div>
     </section>
   );
@@ -761,7 +861,7 @@ function TradeForm({ onSave, onCancel }) {
   );
 }
 
-function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
+function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing, playbook }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(trade);
@@ -844,6 +944,12 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
           </div>
 
           <div className="card-actions">
+            <button
+              className={`btn-pb ${playbook && playbook.has(trade.id) ? 'btn-pb-active' : ''}`}
+              onClick={() => playbook && (playbook.has(trade.id) ? playbook.remove(trade.id) : playbook.add(trade))}
+            >
+              <Star size={13} /> {playbook && playbook.has(trade.id) ? 'في Playbook ✓' : 'أضف للـ Playbook'}
+            </button>
             <button className="btn-edit" onClick={startEdit}><Pencil size={14} /> تعديل / إغلاق</button>
             <button className="btn-delete" onClick={() => onDelete(trade.id)}><Trash2 size={14} /> حذف</button>
           </div>
@@ -1007,6 +1113,89 @@ function PositionSizeCalc({ onClose }) {
   );
 }
 
+// ---------- Playbook (local storage — reference library of A+ setups) ----------
+const PB_KEY = 'pa_playbook_v1';
+function loadPlaybook() {
+  try { return JSON.parse(localStorage.getItem(PB_KEY) || '[]'); } catch { return []; }
+}
+function savePlaybook(items) {
+  try { localStorage.setItem(PB_KEY, JSON.stringify(items)); } catch {}
+}
+
+function usePlaybook() {
+  const [items, setItems] = useState(() => loadPlaybook());
+  const add = (trade) => {
+    const entry = {
+      id: trade.id,
+      date: trade.date,
+      pair: trade.pair,
+      direction: trade.direction,
+      setups: trade.setups || [],
+      reasonEntry: trade.reasonEntry || '',
+      plan: trade.plan || '',
+      chartImage: trade.chartImage || null,
+      realR: computeRealizedR(trade),
+      addedAt: Date.now(),
+    };
+    setItems((prev) => {
+      const next = prev.some((x) => x.id === entry.id) ? prev : [entry, ...prev];
+      savePlaybook(next);
+      return next;
+    });
+  };
+  const remove = (id) => setItems((prev) => { const next = prev.filter((x) => x.id !== id); savePlaybook(next); return next; });
+  const has = (id) => items.some((x) => x.id === id);
+  return { items, add, remove, has };
+}
+
+function PlaybookView({ playbook, onClose }) {
+  const { items, remove } = playbook;
+  return (
+    <section className="playbook-section">
+      <div className="playbook-header">
+        <div className="playbook-title"><Star size={15} /> Playbook — أفضل إعداداتك</div>
+        <button className="calc-close" onClick={onClose}><X size={16} /></button>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="calc-empty">
+          لا توجد صفقات محفوظة بعد.<br />
+          افتح أي صفقة ⭐ لإضافتها هنا كمرجع.
+        </div>
+      ) : (
+        <div className="pb-list">
+          {items.map((item) => (
+            <div key={item.id} className="pb-card">
+              <div className="pb-card-top">
+                <div className="pb-pair">{item.pair} <span className={`dir-badge ${item.direction}`}>{item.direction === 'buy' ? '▲ شراء' : '▼ بيع'}</span></div>
+                <div className="pb-meta">
+                  <span className="pb-date">{item.date}</span>
+                  {item.realR !== null && (
+                    <span className={`pb-r ${item.realR >= 0 ? 'eq-pos' : 'eq-neg'}`}>{item.realR >= 0 ? '+' : ''}{item.realR}R</span>
+                  )}
+                </div>
+              </div>
+              {item.setups.length > 0 && (
+                <div className="tags-wrap pb-tags">
+                  {item.setups.map((s) => <span key={s} className="tag-readonly tag-setup">{s}</span>)}
+                </div>
+              )}
+              {item.reasonEntry && (
+                <div className="pb-text"><span className="meta-label">سبب الدخول</span><p>{item.reasonEntry}</p></div>
+              )}
+              {item.plan && (
+                <div className="pb-text"><span className="meta-label">الخطة</span><p>{item.plan}</p></div>
+              )}
+              {item.chartImage && <img src={item.chartImage} alt="chart" className="chart-thumb-lg" />}
+              <button className="pb-remove" onClick={() => remove(item.id)}><Trash2 size={13} /> إزالة من Playbook</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function TradingJournal() {
   const { trades, add, update, remove, syncStatus } = useTrades();
   const stats = useStats(trades);
@@ -1014,8 +1203,10 @@ export default function TradingJournal() {
   const disciplineScore = useDisciplineScore(trades);
   const setupStats = useSetupStats(trades);
   const emotionStats = useEmotionStats(trades);
+  const playbook = usePlaybook();
   const [showForm, setShowForm] = useState(false);
   const [showCalc, setShowCalc] = useState(false);
+  const [showPlaybook, setShowPlaybook] = useState(false);
   const [analyzingId, setAnalyzingId] = useState(null);
   const [filterResult, setFilterResult] = useState('all');
   const [error, setError] = useState(null);
@@ -1069,10 +1260,13 @@ export default function TradingJournal() {
           </div>
         </div>
         <div className="header-actions">
-          <button className="btn-calc" onClick={() => { setShowCalc((s) => !s); setShowForm(false); }}>
+          <button className="btn-calc" onClick={() => { setShowPlaybook((s) => !s); setShowCalc(false); setShowForm(false); }}>
+            <Star size={16} /> Playbook
+          </button>
+          <button className="btn-calc" onClick={() => { setShowCalc((s) => !s); setShowForm(false); setShowPlaybook(false); }}>
             <Target size={16} /> حاسبة
           </button>
-          <button className="btn-primary btn-new" onClick={() => { setShowForm((s) => !s); setShowCalc(false); }}>
+          <button className="btn-primary btn-new" onClick={() => { setShowForm((s) => !s); setShowCalc(false); setShowPlaybook(false); }}>
             {showForm ? <X size={18} /> : <Plus size={18} />} {showForm ? 'إغلاق' : 'صفقة جديدة'}
           </button>
         </div>
@@ -1130,9 +1324,13 @@ export default function TradingJournal() {
 
       <EquityCurve data={equityData} />
 
+      <CalendarHeatmap trades={trades} />
+
       <SetupStatsPanel stats={setupStats} />
 
       <EmotionStatsPanel stats={emotionStats} />
+
+      {showPlaybook && <PlaybookView playbook={playbook} onClose={() => setShowPlaybook(false)} />}
 
       {showCalc && <PositionSizeCalc onClose={() => setShowCalc(false)} />}
 
@@ -1157,7 +1355,7 @@ export default function TradingJournal() {
           </div>
         )}
         {filtered.map((t) => (
-          <TradeCard key={t.id} trade={t} onDelete={remove} onUpdate={update} onAnalyze={handleAnalyze} analyzing={analyzingId === t.id} />
+          <TradeCard key={t.id} trade={t} onDelete={remove} onUpdate={update} onAnalyze={handleAnalyze} analyzing={analyzingId === t.id} playbook={playbook} />
         ))}
       </div>
     </div>
@@ -1258,7 +1456,28 @@ const css = `
 .calc-result-item-label { display: block; font-size: 10px; color: var(--text-dim); margin-bottom: 3px; }
 .calc-result-item-val { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--text); }
 .calc-warning { font-size: 11.5px; color: #e5cd52; background: rgba(229,205,82,0.08); border: 1px solid rgba(229,205,82,0.2); border-radius: 8px; padding: 8px 10px; line-height: 1.5; }
-.calc-empty { text-align: center; padding: 20px; font-size: 12px; color: var(--text-dim); }
+.calc-empty { text-align: center; padding: 20px; font-size: 12px; color: var(--text-dim); line-height: 1.8; }
+
+.playbook-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 16px; margin: 0 16px 14px; }
+.playbook-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.playbook-title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--text-mid); }
+.pb-list { display: flex; flex-direction: column; gap: 12px; }
+.pb-card { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 11px; padding: 12px; }
+.pb-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.pb-pair { font-size: 14px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 7px; }
+.pb-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.pb-date { font-size: 10px; color: var(--text-dim); }
+.pb-r { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; }
+.pb-tags { margin-bottom: 8px; }
+.pb-text { margin-bottom: 6px; }
+.pb-text p { font-size: 12px; color: var(--text-mid); margin: 2px 0 0; line-height: 1.5; }
+.pb-remove { background: none; border: none; color: var(--text-dim); font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px; margin-top: 8px; padding: 0; }
+.pb-remove:hover { color: #e0607a; }
+.dir-badge { font-size: 10px; padding: 2px 7px; border-radius: 20px; }
+.dir-badge.buy  { background: rgba(66,116,220,0.15); color: #7aa3f0; }
+.dir-badge.sell { background: rgba(226,59,59,0.12);  color: #e07070; }
+.btn-pb { background: var(--panel-2); border: 1px solid var(--line); color: var(--text-dim); padding: 7px 11px; border-radius: 8px; font-size: 11.5px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.btn-pb-active { background: rgba(229,205,82,0.12); border-color: rgba(229,205,82,0.4); color: #e5cd52; }
 .brand-block { display: flex; align-items: center; gap: 12px; }
 .brand-mark {
   width: 38px; height: 38px; border-radius: 9px;
@@ -1318,6 +1537,33 @@ const css = `
 .equity-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px 14px 4px; margin: 0 16px 14px; }
 
 .emotion-stats-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px; margin: 0 16px 14px; }
+
+.calendar-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px; margin: 0 16px 14px; }
+.calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.cal-nav { background: var(--panel-2); border: 1px solid var(--line); color: var(--text-mid); width: 30px; height: 30px; border-radius: 8px; font-size: 18px; display: flex; align-items: center; justify-content: center; cursor: pointer; line-height: 1; }
+.calendar-title-block { text-align: center; }
+.calendar-month-name { display: block; font-family: 'IBM Plex Sans Arabic', sans-serif; font-size: 13px; font-weight: 700; color: var(--text); }
+.calendar-month-r { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.cal-grid-head { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
+.cal-grid-head span { text-align: center; font-size: 10px; color: var(--text-dim); padding: 2px 0; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-cell { border-radius: 7px; min-height: 40px; padding: 4px 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.cal-null { background: transparent; }
+.cal-empty { background: rgba(255,255,255,0.03); border: 1px solid var(--line-soft); }
+.cal-win  { background: rgba(91,141,239,0.18); border: 1px solid rgba(91,141,239,0.35); }
+.cal-loss { background: rgba(226,59,59,0.15);  border: 1px solid rgba(226,59,59,0.30); }
+.cal-be   { background: rgba(229,205,82,0.12); border: 1px solid rgba(229,205,82,0.25); }
+.cal-day-num { font-size: 10px; color: var(--text-mid); font-weight: 600; }
+.cal-day-r { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text-dim); margin-top: 1px; }
+.cal-win  .cal-day-r { color: #7aa3f0; }
+.cal-loss .cal-day-r { color: #e07070; }
+.cal-legend { display: flex; gap: 12px; justify-content: center; margin-top: 10px; font-size: 10.5px; color: var(--text-dim); flex-wrap: wrap; }
+.cal-legend span { display: flex; align-items: center; gap: 4px; }
+.cal-dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.cal-dot.cal-win  { background: rgba(91,141,239,0.5); }
+.cal-dot.cal-loss { background: rgba(226,59,59,0.5); }
+.cal-dot.cal-be   { background: rgba(229,205,82,0.4); }
+.cal-dot.cal-empty { background: rgba(255,255,255,0.08); border: 1px solid var(--line-soft); }
 .emotion-danger-banner { background: rgba(229,205,82,0.10); border: 1px solid rgba(229,205,82,0.25); border-radius: 9px; padding: 10px 12px; font-size: 12px; color: #e5cd52; margin-bottom: 12px; line-height: 1.5; }
 .emotion-after-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 11.5px; }
 .emotion-after-tag { background: rgba(91,141,239,0.12); color: #7aa3f0; border: 1px solid rgba(91,141,239,0.25); border-radius: 20px; padding: 3px 10px; font-size: 11px; }
