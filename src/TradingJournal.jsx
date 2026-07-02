@@ -32,9 +32,15 @@ async function cloudDelete(id) {
 
 // ---------- Constants ----------
 const PSYCH_TAGS = ['وفق الخطة', 'طمع', 'انتقام', 'خوف', 'كسر الخطة', 'تسرع', 'ثقة زائدة', 'تردد'];
-// Legacy Arabic tag values from trades logged before the English UI update — kept only
-// so old trades still count correctly in stats (see NEGATIVE_PSYCH_TAGS below).
 const LEGACY_PSYCH_TAGS_AR = ['وفق الخطة', 'طمع', 'انتقام', 'خوف', 'كسر الخطة', 'تسرع', 'ثقة زائدة', 'تردد'];
+
+// Emotion Tracker — before entry
+const EMOTIONS_BEFORE = ['هادئ 😌', 'محايد 😐', 'ثقة 💪', 'خوف 😨', 'FOMO 🔥', 'انتقام 😤', 'تردد 🤔', 'ثقة زائدة 😎'];
+// Emotion Tracker — after exit
+const EMOTIONS_AFTER  = ['راضٍ ✅', 'سعيد 🎉', 'ندم 😞', 'غضب 😡', 'إحباط 😔', 'محايد 😐'];
+
+// Negative emotions for discipline score (before-entry)
+const NEGATIVE_EMOTIONS_BEFORE = ['خوف 😨', 'FOMO 🔥', 'انتقام 😤', 'تردد 🤔', 'ثقة زائدة 😎'];
 const PAIRS = [
   // Majors
   'EURUSD','GBPUSD','USDJPY','USDCHF','USDCAD','AUDUSD','NZDUSD',
@@ -64,11 +70,13 @@ const emptyTrade = () => ({
   pair: 'GBPUSD',
   direction: 'buy',
   entry: '', sl: '', tp: '', exit: '',
-  result: 'open', // win | loss | open | breakeven
+  result: 'open',
   reasonEntry: '',
   reasonExit: '',
   plan: '',
-  psychTags: [],
+  psychTags: [],       // legacy — kept for backward compat
+  emotionBefore: [],   // new: emotions before entry
+  emotionAfter: [],    // new: emotions after exit
   setups: [],
   chartImage: null,
   aiAnalysis: null,
@@ -210,18 +218,62 @@ function useEquityCurve(trades) {
   }, [trades]);
 }
 
-// ---------- Discipline score (0-100): % of closed trades free of negative psych tags ----------
-// Includes both the new English tags and the legacy Arabic ones so old trades still count correctly.
+// ---------- Discipline score ----------
 const NEGATIVE_PSYCH_TAGS = [
-  'Greed', 'Revenge', 'Fear', 'Broke Plan', 'Rushed Entry', 'Overconfidence', 'Hesitation',
   'طمع', 'انتقام', 'خوف', 'كسر الخطة', 'تسرع', 'ثقة زائدة', 'تردد',
+  'Greed', 'Revenge', 'Fear', 'Broke Plan', 'Rushed Entry', 'Overconfidence', 'Hesitation',
 ];
 function useDisciplineScore(trades) {
   return useMemo(() => {
     const closed = trades.filter((t) => t.result !== 'open');
     if (!closed.length) return null;
-    const disciplined = closed.filter((t) => !t.psychTags.some((tag) => NEGATIVE_PSYCH_TAGS.includes(tag))).length;
+    const disciplined = closed.filter((t) => {
+      const hasNegPsych = t.psychTags.some((tag) => NEGATIVE_PSYCH_TAGS.includes(tag));
+      const hasNegEmotion = (t.emotionBefore || []).some((e) => NEGATIVE_EMOTIONS_BEFORE.includes(e));
+      return !hasNegPsych && !hasNegEmotion;
+    }).length;
     return Math.round((disciplined / closed.length) * 100);
+  }, [trades]);
+}
+
+// ---------- Emotion stats: detect patterns between emotions and results ----------
+function useEmotionStats(trades) {
+  return useMemo(() => {
+    const closed = trades.filter((t) => t.result !== 'open' && (t.emotionBefore || []).length > 0);
+    if (closed.length < 2) return null;
+
+    const map = {};
+    closed.forEach((t) => {
+      (t.emotionBefore || []).forEach((e) => {
+        if (!map[e]) map[e] = { win: 0, loss: 0, total: 0 };
+        map[e].total++;
+        if (t.result === 'win') map[e].win++;
+        else if (t.result === 'loss') map[e].loss++;
+      });
+    });
+
+    const rows = Object.entries(map)
+      .filter(([, v]) => v.total >= 1)
+      .map(([emotion, v]) => ({
+        emotion,
+        total: v.total,
+        winRate: Math.round((v.win / v.total) * 100),
+        lossRate: Math.round((v.loss / v.total) * 100),
+        wins: v.win, losses: v.loss,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    const best   = [...rows].sort((a, b) => b.winRate - a.winRate)[0] || null;
+    const worst  = [...rows].sort((a, b) => a.winRate - b.winRate)[0] || null;
+    const danger = rows.find((r) => r.lossRate >= 60 && r.total >= 2) || null;
+
+    const afterMap = {};
+    closed.forEach((t) => {
+      (t.emotionAfter || []).forEach((e) => { afterMap[e] = (afterMap[e] || 0) + 1; });
+    });
+    const topAfter = Object.entries(afterMap).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+    return { rows, best, worst, danger, topAfter };
   }, [trades]);
 }
 
@@ -415,6 +467,62 @@ function EquityCurve({ data }) {
             />
           </AreaChart>
         </ResponsiveContainer>
+      </div>
+    </section>
+  );
+}
+
+function EmotionStatsPanel({ stats }) {
+  if (!stats) return null;
+  return (
+    <section className="emotion-stats-section">
+      <div className="setup-stats-header">
+        <Brain size={15} />
+        <span>تحليل المشاعر والأداء</span>
+      </div>
+
+      {stats.danger && (
+        <div className="emotion-danger-banner">
+          ⚠️ تنبيه: عندما تبدأ بحالة <strong>{stats.danger.emotion}</strong>، تخسر في {stats.danger.lossRate}% من الصفقات ({stats.danger.total} صفقة)
+        </div>
+      )}
+
+      <div className="setup-highlights">
+        {stats.best && (
+          <div className="setup-highlight-card setup-hl-best">
+            <div className="setup-hl-label">أفضل حالة للدخول</div>
+            <div className="setup-hl-name">{stats.best.emotion}</div>
+            <div className="setup-hl-r">{stats.best.winRate}% فوز · {stats.best.total} صفقة</div>
+          </div>
+        )}
+        {stats.worst && stats.worst.emotion !== stats.best?.emotion && (
+          <div className="setup-highlight-card setup-hl-worst">
+            <div className="setup-hl-label">أسوأ حالة للدخول</div>
+            <div className="setup-hl-name">{stats.worst.emotion}</div>
+            <div className="setup-hl-r">{stats.worst.winRate}% فوز · {stats.worst.total} صفقة</div>
+          </div>
+        )}
+      </div>
+
+      {stats.topAfter && (
+        <div className="emotion-after-row">
+          <span className="meta-label">المشاعر الغالبة بعد الخروج</span>
+          <span className="emotion-after-tag">{stats.topAfter}</span>
+        </div>
+      )}
+
+      <div className="setup-table">
+        <div className="setup-table-head">
+          <span>الحالة النفسية</span><span>صفقات</span><span>فوز%</span><span>خسارة%</span>
+        </div>
+        {stats.rows.map((r) => (
+          <div key={r.emotion} className="setup-table-row">
+            <span className="setup-name-cell">{r.emotion}</span>
+            <span>{r.total}</span>
+            <span className={r.winRate >= 50 ? 'clr-pos' : 'clr-neg'}>{r.winRate}%</span>
+            <span className={r.lossRate >= 50 ? 'clr-neg' : 'clr-pos'}>{r.lossRate}%</span>
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -618,12 +726,23 @@ function TradeForm({ onSave, onCancel }) {
       </label>
 
       <label className="field">
-        <span>الحالة النفسية وقت الصفقة (اختر كل ما ينطبق بصدق)</span>
+        <span>الحالة النفسية قبل الدخول (كيف كنت تشعر؟)</span>
         <div className="tags-wrap">
-          {PSYCH_TAGS.map((tag) => (
-            <Tag key={tag} active={t.psychTags.includes(tag)} onClick={() => {
-              setT((p) => ({ ...p, psychTags: p.psychTags.includes(tag) ? p.psychTags.filter((x) => x !== tag) : [...p.psychTags, tag] }));
-            }}>{tag}</Tag>
+          {EMOTIONS_BEFORE.map((e) => (
+            <Tag key={e} active={t.emotionBefore.includes(e)} onClick={() => {
+              setT((p) => ({ ...p, emotionBefore: p.emotionBefore.includes(e) ? p.emotionBefore.filter((x) => x !== e) : [...p.emotionBefore, e] }));
+            }}>{e}</Tag>
+          ))}
+        </div>
+      </label>
+
+      <label className="field">
+        <span>الحالة النفسية بعد الخروج (كيف شعرت؟)</span>
+        <div className="tags-wrap">
+          {EMOTIONS_AFTER.map((e) => (
+            <Tag key={e} active={t.emotionAfter.includes(e)} onClick={() => {
+              setT((p) => ({ ...p, emotionAfter: p.emotionAfter.includes(e) ? p.emotionAfter.filter((x) => x !== e) : [...p.emotionAfter, e] }));
+            }}>{e}</Tag>
           ))}
         </div>
       </label>
@@ -685,7 +804,19 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
           {trade.reasonExit && <div className="trade-text"><span className="meta-label">سبب الخروج</span><p>{trade.reasonExit}</p></div>}
           {trade.plan && <div className="trade-text"><span className="meta-label">الخطة</span><p>{trade.plan}</p></div>}
           {trade.psychTags.length > 0 && (
-            <div className="tags-wrap">{trade.psychTags.map((t) => <span key={t} className="tag-readonly">{t}</span>)}</div>
+            <div className="trade-text"><span className="meta-label">الوسوم النفسية</span>
+              <div className="tags-wrap">{trade.psychTags.map((t) => <span key={t} className="tag-readonly">{t}</span>)}</div>
+            </div>
+          )}
+          {(trade.emotionBefore || []).length > 0 && (
+            <div className="trade-text"><span className="meta-label">المشاعر قبل الدخول</span>
+              <div className="tags-wrap">{(trade.emotionBefore || []).map((e) => <span key={e} className="tag-readonly tag-emotion-before">{e}</span>)}</div>
+            </div>
+          )}
+          {(trade.emotionAfter || []).length > 0 && (
+            <div className="trade-text"><span className="meta-label">المشاعر بعد الخروج</span>
+              <div className="tags-wrap">{(trade.emotionAfter || []).map((e) => <span key={e} className="tag-readonly tag-emotion-after">{e}</span>)}</div>
+            </div>
           )}
           {trade.setups && trade.setups.length > 0 && (
             <div className="setups-display">
@@ -748,12 +879,12 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
             </div>
           </label>
           <label className="field">
-            <span>الحالة النفسية وقت الإغلاق</span>
+            <span>الحالة النفسية بعد الخروج</span>
             <div className="tags-wrap">
-              {PSYCH_TAGS.map((tag) => (
-                <Tag key={tag} active={draft.psychTags.includes(tag)} onClick={() => {
-                  setDraft((p) => ({ ...p, psychTags: p.psychTags.includes(tag) ? p.psychTags.filter((x) => x !== tag) : [...p.psychTags, tag] }));
-                }}>{tag}</Tag>
+              {EMOTIONS_AFTER.map((e) => (
+                <Tag key={e} active={(draft.emotionAfter || []).includes(e)} onClick={() => {
+                  setDraft((p) => ({ ...p, emotionAfter: (p.emotionAfter || []).includes(e) ? (p.emotionAfter || []).filter((x) => x !== e) : [...(p.emotionAfter || []), e] }));
+                }}>{e}</Tag>
               ))}
             </div>
           </label>
@@ -773,6 +904,7 @@ export default function TradingJournal() {
   const equityData = useEquityCurve(trades);
   const disciplineScore = useDisciplineScore(trades);
   const setupStats = useSetupStats(trades);
+  const emotionStats = useEmotionStats(trades);
   const [showForm, setShowForm] = useState(false);
   const [analyzingId, setAnalyzingId] = useState(null);
   const [filterResult, setFilterResult] = useState('all');
@@ -884,6 +1016,8 @@ export default function TradingJournal() {
       <EquityCurve data={equityData} />
 
       <SetupStatsPanel stats={setupStats} />
+
+      <EmotionStatsPanel stats={emotionStats} />
 
       {showForm && <TradeForm onSave={handleSave} onCancel={() => setShowForm(false)} />}
 
@@ -1039,6 +1173,13 @@ const css = `
 .error-banner { background: var(--rose-dim); border: 1px solid #5a2e38; color: var(--rose); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 0 16px 14px; }
 
 .equity-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px 14px 4px; margin: 0 16px 14px; }
+
+.emotion-stats-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px; margin: 0 16px 14px; }
+.emotion-danger-banner { background: rgba(229,205,82,0.10); border: 1px solid rgba(229,205,82,0.25); border-radius: 9px; padding: 10px 12px; font-size: 12px; color: #e5cd52; margin-bottom: 12px; line-height: 1.5; }
+.emotion-after-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 11.5px; }
+.emotion-after-tag { background: rgba(91,141,239,0.12); color: #7aa3f0; border: 1px solid rgba(91,141,239,0.25); border-radius: 20px; padding: 3px 10px; font-size: 11px; }
+.tag-emotion-before { background: rgba(155,127,196,0.15); color: #c4aee8; border: 1px solid rgba(155,127,196,0.3); }
+.tag-emotion-after  { background: rgba(91,224,160,0.12); color: #5be0a0; border: 1px solid rgba(91,224,160,0.25); }
 
 .setup-stats-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px; margin: 0 16px 14px; }
 .setup-stats-header { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text-mid); margin-bottom: 12px; }
