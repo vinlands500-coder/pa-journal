@@ -898,6 +898,115 @@ function TradeCard({ trade, onDelete, onUpdate, onAnalyze, analyzing }) {
   );
 }
 
+function PositionSizeCalc({ onClose }) {
+  const [accountSize, setAccountSize] = useState('');
+  const [riskPct, setRiskPct]         = useState('1');
+  const [entry, setEntry]             = useState('');
+  const [sl, setSl]                   = useState('');
+  const [lotType, setLotType]         = useState('standard'); // standard | mini | micro
+
+  const LOT_UNITS = { standard: 100000, mini: 10000, micro: 1000 };
+  const LOT_LABEL = { standard: 'لوت عادي', mini: 'ميني لوت', micro: 'ميكرو لوت' };
+
+  const result = useMemo(() => {
+    const acc   = parseFloat(accountSize);
+    const risk  = parseFloat(riskPct);
+    const ent   = parseFloat(entry);
+    const stop  = parseFloat(sl);
+    if (!acc || !risk || !ent || !stop || ent === stop) return null;
+
+    const riskAmount   = (acc * risk) / 100;                   // $ at risk
+    const pipValue     = Math.abs(ent - stop);                 // distance in price
+    const units        = LOT_UNITS[lotType];
+    const pipDollar    = pipValue * units;                     // $ per lot
+    const lotSize      = riskAmount / pipDollar;
+    const roundedLots  = Math.floor(lotSize * 100) / 100;      // floor to 2 decimals (conservative)
+
+    return {
+      riskAmount: riskAmount.toFixed(2),
+      pipValue:   pipValue.toFixed(5),
+      lotSize:    lotSize.toFixed(4),
+      roundedLots,
+      type:       LOT_LABEL[lotType],
+    };
+  }, [accountSize, riskPct, entry, sl, lotType]);
+
+  return (
+    <div className="calc-card">
+      <div className="calc-header">
+        <div className="calc-title">
+          <Target size={15} /> حاسبة حجم الصفقة
+        </div>
+        <button className="calc-close" onClick={onClose}><X size={16} /></button>
+      </div>
+
+      <div className="calc-risk-row">
+        {['0.5','1','1.5','2'].map((v) => (
+          <button key={v} className={`calc-risk-btn ${riskPct === v ? 'calc-risk-active' : ''}`} onClick={() => setRiskPct(v)}>{v}%</button>
+        ))}
+        <input className="calc-risk-input" type="number" step="0.1" value={riskPct} onChange={(e) => setRiskPct(e.target.value)} placeholder="%" />
+      </div>
+
+      <div className="form-grid form-grid-4">
+        <label className="field">
+          <span>رأس المال ($)</span>
+          <input type="number" value={accountSize} onChange={(e) => setAccountSize(e.target.value)} placeholder="10000" />
+        </label>
+        <label className="field">
+          <span>سعر الدخول</span>
+          <input type="number" step="any" value={entry} onChange={(e) => setEntry(e.target.value)} placeholder="1.2750" />
+        </label>
+        <label className="field">
+          <span>مستوى الـ SL</span>
+          <input type="number" step="any" value={sl} onChange={(e) => setSl(e.target.value)} placeholder="1.2700" />
+        </label>
+        <label className="field">
+          <span>نوع اللوت</span>
+          <div className="lot-toggle">
+            {['standard','mini','micro'].map((t) => (
+              <button key={t} className={lotType === t ? 'lot-active' : ''} onClick={() => setLotType(t)}>
+                {{ standard: 'عادي', mini: 'ميني', micro: 'ميكرو' }[t]}
+              </button>
+            ))}
+          </div>
+        </label>
+      </div>
+
+      {result ? (
+        <div className="calc-result">
+          <div className="calc-result-main">
+            <div className="calc-result-label">حجم الصفقة</div>
+            <div className="calc-result-value">{result.roundedLots} <span className="calc-result-unit">{result.type}</span></div>
+          </div>
+          <div className="calc-result-grid">
+            <div className="calc-result-item">
+              <span className="calc-result-item-label">المخاطرة بالدولار</span>
+              <span className="calc-result-item-val clr-neg">${result.riskAmount}</span>
+            </div>
+            <div className="calc-result-item">
+              <span className="calc-result-item-label">المسافة للـ SL</span>
+              <span className="calc-result-item-val">{result.pipValue}</span>
+            </div>
+            <div className="calc-result-item">
+              <span className="calc-result-item-label">الحجم الدقيق</span>
+              <span className="calc-result-item-val">{result.lotSize}</span>
+            </div>
+            <div className="calc-result-item">
+              <span className="calc-result-item-label">نسبة المخاطرة</span>
+              <span className="calc-result-item-val clr-neg">{riskPct}%</span>
+            </div>
+          </div>
+          <div className="calc-warning">
+            ⚠️ لا تدخل بأكثر من <strong>{result.roundedLots} {result.type}</strong> للحفاظ على مخاطرة {riskPct}% فقط
+          </div>
+        </div>
+      ) : (
+        <div className="calc-empty">أدخل رأس المال، الدخول، والـ SL لحساب حجم الصفقة</div>
+      )}
+    </div>
+  );
+}
+
 export default function TradingJournal() {
   const { trades, add, update, remove, syncStatus } = useTrades();
   const stats = useStats(trades);
@@ -906,6 +1015,7 @@ export default function TradingJournal() {
   const setupStats = useSetupStats(trades);
   const emotionStats = useEmotionStats(trades);
   const [showForm, setShowForm] = useState(false);
+  const [showCalc, setShowCalc] = useState(false);
   const [analyzingId, setAnalyzingId] = useState(null);
   const [filterResult, setFilterResult] = useState('all');
   const [error, setError] = useState(null);
@@ -958,9 +1068,14 @@ export default function TradingJournal() {
             <p className="subtitle">سجّل قرارك، لا توصية أحد</p>
           </div>
         </div>
-        <button className="btn-primary btn-new" onClick={() => setShowForm((s) => !s)}>
-          {showForm ? <X size={18} /> : <Plus size={18} />} {showForm ? 'إغلاق' : 'صفقة جديدة'}
-        </button>
+        <div className="header-actions">
+          <button className="btn-calc" onClick={() => { setShowCalc((s) => !s); setShowForm(false); }}>
+            <Target size={16} /> حاسبة
+          </button>
+          <button className="btn-primary btn-new" onClick={() => { setShowForm((s) => !s); setShowCalc(false); }}>
+            {showForm ? <X size={18} /> : <Plus size={18} />} {showForm ? 'إغلاق' : 'صفقة جديدة'}
+          </button>
+        </div>
       </header>
 
       <section className="dash-hero">
@@ -1018,6 +1133,8 @@ export default function TradingJournal() {
       <SetupStatsPanel stats={setupStats} />
 
       <EmotionStatsPanel stats={emotionStats} />
+
+      {showCalc && <PositionSizeCalc onClose={() => setShowCalc(false)} />}
 
       {showForm && <TradeForm onSave={handleSave} onCancel={() => setShowForm(false)} />}
 
@@ -1116,6 +1233,32 @@ const css = `
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line-soft);
 }
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.btn-calc { background: var(--panel-2); border: 1px solid var(--line); color: var(--text-mid); padding: 9px 13px; border-radius: 10px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.btn-calc:hover { background: #1a212e; }
+
+.calc-card { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 16px; margin: 0 16px 14px; }
+.calc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.calc-title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--text-mid); }
+.calc-close { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 4px; }
+.calc-risk-row { display: flex; gap: 6px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.calc-risk-btn { padding: 6px 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text-dim); font-size: 12px; cursor: pointer; }
+.calc-risk-active { background: rgba(66,116,220,0.2); border-color: #4274dc; color: #5b8def; font-weight: 700; }
+.calc-risk-input { width: 56px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font-size: 12px; text-align: center; }
+.lot-toggle { display: flex; gap: 4px; }
+.lot-toggle button { flex: 1; padding: 7px 4px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text-dim); font-size: 11px; cursor: pointer; }
+.lot-active { background: rgba(66,116,220,0.18) !important; border-color: #4274dc !important; color: #5b8def !important; font-weight: 700; }
+.calc-result { margin-top: 12px; background: rgba(66,116,220,0.06); border: 1px solid rgba(66,116,220,0.2); border-radius: 11px; padding: 14px; }
+.calc-result-main { text-align: center; margin-bottom: 12px; }
+.calc-result-label { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+.calc-result-value { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 700; color: #5b8def; }
+.calc-result-unit { font-size: 13px; color: var(--text-mid); }
+.calc-result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.calc-result-item { background: var(--panel); border-radius: 8px; padding: 8px 10px; }
+.calc-result-item-label { display: block; font-size: 10px; color: var(--text-dim); margin-bottom: 3px; }
+.calc-result-item-val { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--text); }
+.calc-warning { font-size: 11.5px; color: #e5cd52; background: rgba(229,205,82,0.08); border: 1px solid rgba(229,205,82,0.2); border-radius: 8px; padding: 8px 10px; line-height: 1.5; }
+.calc-empty { text-align: center; padding: 20px; font-size: 12px; color: var(--text-dim); }
 .brand-block { display: flex; align-items: center; gap: 12px; }
 .brand-mark {
   width: 38px; height: 38px; border-radius: 9px;
