@@ -1196,7 +1196,141 @@ function PlaybookView({ playbook, onClose }) {
   );
 }
 
-// ---------- Pre-Trade Checklist ----------
+// ---------- Performance Intelligence ----------
+function usePerformanceIntelligence(trades) {
+  return useMemo(() => {
+    const closed = trades.filter((t) => t.result !== 'open');
+    if (closed.length < 3) return null;
+
+    const insights = [];
+
+    // 1. Consecutive losses pattern
+    let maxStreak = 0, cur = 0;
+    [...closed].sort((a, b) => new Date(a.date) - new Date(b.date)).forEach((t) => {
+      if (t.result === 'loss') { cur++; maxStreak = Math.max(maxStreak, cur); }
+      else cur = 0;
+    });
+    if (maxStreak >= 2) {
+      insights.push({ type: 'warning', icon: '⚠️', title: 'أنماط الخسائر المتتالية', body: `أطول سلسلة خسائر متتالية عندك ${maxStreak} صفقات. المتداولون يرتكبون أكبر أخطائهم بعد خسارتين متتاليتين — ضع قاعدة توقف بعد خسارتين.` });
+    }
+
+    // 2. Best setup vs worst setup
+    const setupMap = {};
+    closed.forEach((t) => {
+      (t.setups || []).forEach((s) => {
+        if (!setupMap[s]) setupMap[s] = { wins: 0, total: 0, netR: 0 };
+        setupMap[s].total++;
+        const r = computeRealizedR(t);
+        if (r) setupMap[s].netR += r;
+        if (t.result === 'win') setupMap[s].wins++;
+      });
+    });
+    const setupRows = Object.entries(setupMap).filter(([, v]) => v.total >= 2);
+    if (setupRows.length >= 2) {
+      const best  = setupRows.sort((a, b) => (b[1].netR) - (a[1].netR))[0];
+      const worst = setupRows.sort((a, b) => (a[1].netR) - (b[1].netR))[0];
+      if (best[0] !== worst[0]) {
+        insights.push({ type: 'success', icon: '📊', title: 'أفضل وأسوأ إعداداتك', body: `إعداد "${best[0]}" يحقق أعلى صافي R (${best[1].netR.toFixed(1)}R في ${best[1].total} صفقات). بينما "${worst[0]}" هو الأسوأ (${worst[1].netR.toFixed(1)}R). ركّز على الأول وراجع شروط الثاني.` });
+      }
+    }
+
+    // 3. Emotion vs result
+    const emotionLossMap = {};
+    const emotionWinMap  = {};
+    closed.forEach((t) => {
+      (t.emotionBefore || []).forEach((e) => {
+        if (t.result === 'loss') emotionLossMap[e] = (emotionLossMap[e] || 0) + 1;
+        if (t.result === 'win')  emotionWinMap[e]  = (emotionWinMap[e]  || 0) + 1;
+      });
+    });
+    const topLossEmotion = Object.entries(emotionLossMap).sort((a, b) => b[1] - a[1])[0];
+    const topWinEmotion  = Object.entries(emotionWinMap).sort((a, b) => b[1] - a[1])[0];
+    if (topLossEmotion && topLossEmotion[1] >= 2) {
+      insights.push({ type: 'warning', icon: '🧠', title: 'نمط نفسي خطير', body: `${topLossEmotion[1]} من خسائرك بدأت بحالة "${topLossEmotion[0]}". هذه الحالة النفسية مرتبطة بقراراتك الأسوأ — لا تدخل صفقة وأنت تشعر بها.` });
+    }
+    if (topWinEmotion && topWinEmotion[1] >= 2) {
+      insights.push({ type: 'success', icon: '💪', title: 'حالتك النفسية المثالية', body: `${topWinEmotion[1]} من صفقاتك الرابحة بدأت بحالة "${topWinEmotion[0]}". هذه هي حالتك المثالية للتداول — انتظرها قبل الدخول.` });
+    }
+
+    // 4. Win rate by direction
+    const buyTrades  = closed.filter((t) => t.direction === 'buy');
+    const sellTrades = closed.filter((t) => t.direction === 'sell');
+    if (buyTrades.length >= 2 && sellTrades.length >= 2) {
+      const buyWR  = Math.round((buyTrades.filter(t => t.result === 'win').length  / buyTrades.length)  * 100);
+      const sellWR = Math.round((sellTrades.filter(t => t.result === 'win').length / sellTrades.length) * 100);
+      if (Math.abs(buyWR - sellWR) >= 20) {
+        const better = buyWR > sellWR ? 'الشراء' : 'البيع';
+        const worse  = buyWR > sellWR ? 'البيع'  : 'الشراء';
+        const bWR    = buyWR > sellWR ? buyWR : sellWR;
+        const wWR    = buyWR > sellWR ? sellWR : buyWR;
+        insights.push({ type: 'info', icon: '📈', title: 'أداؤك في الاتجاهين', body: `صفقات ${better} تحقق ${bWR}% فوز بينما ${worse} تحقق ${wWR}% فقط. ركّز على ${better} حتى تفهم لماذا ${worse} أضعف.` });
+      }
+    }
+
+    // 5. R:R planned vs realized
+    const withBothR = closed.filter((t) => {
+      const rr = computeRR(t);
+      const real = computeRealizedR(t);
+      return rr && real !== null;
+    });
+    if (withBothR.length >= 3) {
+      const avgPlanned  = withBothR.reduce((s, t) => s + parseFloat(computeRR(t)), 0) / withBothR.length;
+      const avgRealized = withBothR.reduce((s, t) => s + computeRealizedR(t), 0) / withBothR.length;
+      if (avgRealized < avgPlanned * 0.6) {
+        insights.push({ type: 'warning', icon: '🎯', title: 'تخرج مبكراً من صفقاتك', body: `متوسط R:R المخطط ${avgPlanned.toFixed(1)} لكن المحقق فعلاً ${avgRealized.toFixed(1)}. أنت تغلق صفقاتك قبل أن تصل لهدفها — الصبر يساوي فرق ${(avgPlanned - avgRealized).toFixed(1)}R لكل صفقة.` });
+      }
+    }
+
+    // 6. Overall summary
+    const wins   = closed.filter(t => t.result === 'win').length;
+    const losses = closed.filter(t => t.result === 'loss').length;
+    const netR   = closed.reduce((s, t) => { const r = computeRealizedR(t); return s + (r || 0); }, 0);
+    const summary = { total: closed.length, wins, losses, netR: +netR.toFixed(2), winRate: Math.round((wins / closed.length) * 100) };
+
+    return { insights: insights.slice(0, 4), summary };
+  }, [trades]);
+}
+
+function PerformanceIntelligenceCard({ data }) {
+  if (!data) return null;
+  const { insights, summary } = data;
+
+  const typeColor = { warning: '#e5cd52', success: '#5b8def', info: '#c4aee8' };
+  const typeBg    = { warning: 'rgba(229,205,82,0.08)', success: 'rgba(66,116,220,0.08)', info: 'rgba(155,127,196,0.08)' };
+  const typeBorder = { warning: 'rgba(229,205,82,0.2)', success: 'rgba(66,116,220,0.2)', info: 'rgba(155,127,196,0.2)' };
+
+  return (
+    <section className="pi-section">
+      <div className="pi-header">
+        <div className="pi-title">⚡ Performance Intelligence</div>
+        <div className="pi-sub">مبني على {summary.total} صفقة مغلقة</div>
+      </div>
+
+      <div className="pi-summary-row">
+        <div className="pi-sum-item"><span className="pi-sum-label">الفوز</span><span className="pi-sum-val clr-pos">{summary.winRate}%</span></div>
+        <div className="pi-sum-item"><span className="pi-sum-label">صافي R</span><span className={`pi-sum-val ${summary.netR >= 0 ? 'clr-pos' : 'clr-neg'}`}>{summary.netR >= 0 ? '+' : ''}{summary.netR}R</span></div>
+        <div className="pi-sum-item"><span className="pi-sum-label">ربح</span><span className="pi-sum-val clr-pos">{summary.wins}</span></div>
+        <div className="pi-sum-item"><span className="pi-sum-label">خسارة</span><span className="pi-sum-val clr-neg">{summary.losses}</span></div>
+      </div>
+
+      {insights.length === 0 ? (
+        <div className="pi-empty">سجّل المزيد من الصفقات مع بياناتها الكاملة لتظهر الأنماط هنا.</div>
+      ) : (
+        <div className="pi-insights">
+          {insights.map((ins, i) => (
+            <div key={i} className="pi-insight-card" style={{ background: typeBg[ins.type], borderColor: typeBorder[ins.type] }}>
+              <div className="pi-insight-top">
+                <span className="pi-insight-icon">{ins.icon}</span>
+                <span className="pi-insight-title" style={{ color: typeColor[ins.type] }}>{ins.title}</span>
+              </div>
+              <p className="pi-insight-body">{ins.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 const CHECKLIST_ITEMS = [
   { id: 'trend',    label: 'الاتجاه العام واضح على Daily/4H',          desc: 'تعرف إذا كنت تتداول مع الاتجاه أو عكسه' },
   { id: 'zone',     label: 'منطقة Supply أو Demand مؤكدة وغير مُلمَسة', desc: 'المنطقة واضحة وما وصلها السعر من قبل' },
@@ -1282,6 +1416,7 @@ export default function TradingJournal() {
   const disciplineScore = useDisciplineScore(trades);
   const setupStats = useSetupStats(trades);
   const emotionStats = useEmotionStats(trades);
+  const piData = usePerformanceIntelligence(trades);
   const playbook = usePlaybook();
   const [showForm, setShowForm] = useState(false);
   const [showCalc, setShowCalc] = useState(false);
@@ -1406,6 +1541,8 @@ export default function TradingJournal() {
       )}
 
       <EquityCurve data={equityData} />
+
+      <PerformanceIntelligenceCard data={piData} />
 
       <CalendarHeatmap trades={trades} />
 
@@ -1642,6 +1779,22 @@ const css = `
 .error-banner { background: var(--rose-dim); border: 1px solid #5a2e38; color: var(--rose); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 0 16px 14px; }
 
 .equity-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px 14px 4px; margin: 0 16px 14px; }
+
+.pi-section { background: var(--panel); border: 1px solid rgba(66,116,220,0.3); border-radius: 13px; padding: 14px; margin: 0 16px 14px; background: linear-gradient(135deg, rgba(66,116,220,0.06) 0%, rgba(155,127,196,0.04) 100%); }
+.pi-header { margin-bottom: 10px; }
+.pi-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.pi-sub { font-size: 11px; color: var(--text-dim); }
+.pi-summary-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-bottom: 12px; }
+.pi-sum-item { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px 4px; text-align: center; }
+.pi-sum-label { display: block; font-size: 9.5px; color: var(--text-dim); margin-bottom: 3px; }
+.pi-sum-val { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; }
+.pi-insights { display: flex; flex-direction: column; gap: 8px; }
+.pi-insight-card { border-radius: 10px; border: 1px solid; padding: 11px 12px; }
+.pi-insight-top { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+.pi-insight-icon { font-size: 15px; }
+.pi-insight-title { font-size: 12.5px; font-weight: 700; }
+.pi-insight-body { font-size: 11.5px; color: var(--text-mid); line-height: 1.6; margin: 0; }
+.pi-empty { font-size: 12px; color: var(--text-dim); text-align: center; padding: 12px 0; line-height: 1.6; }
 
 .emotion-stats-section { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px; margin: 0 16px 14px; }
 
